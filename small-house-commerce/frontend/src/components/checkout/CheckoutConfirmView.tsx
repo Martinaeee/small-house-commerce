@@ -115,6 +115,12 @@ interface CheckoutConfirmViewProps {
   qty?: string;
   itemsParam?: string;
   slug?: string;
+  /**
+   * `auto=1` (set by the checkout form's PLACE ORDER): the address and the
+   * summary were already reviewed on the form, so this page places the order
+   * itself on arrival instead of asking the shopper to confirm again.
+   */
+  autoPlace?: boolean;
 }
 
 type CheckoutPayload = Parameters<typeof api.createOrder>[0];
@@ -184,6 +190,7 @@ export function CheckoutConfirmView({
   qty,
   itemsParam,
   slug,
+  autoPlace = false,
 }: CheckoutConfirmViewProps) {
   const router = useRouter();
   const [draft, setDraft] = useState<CheckoutDraft | null>(null);
@@ -582,6 +589,29 @@ export function CheckoutConfirmView({
     };
   }, []);
 
+  // auto=1: the shopper already reviewed the address and the summary on the
+  // form page, so this step places the order as soon as the draft, the lines
+  // and any promo validation are ready — no second confirmation. A durable
+  // attempt (lost response / reload) and a completed order keep their own
+  // recovery paths; neither ever submits again.
+  const autoSubmittedRef = useRef(false);
+  useEffect(() => {
+    if (!autoPlace || autoSubmittedRef.current) return;
+    if (draft === null || promoChecking) return;
+    if (awaitingBuyNowResolution || unresolvedSelection) return;
+    if (readCheckoutSubmission(checkoutHref)) return;
+    if (findCompletedCheckout(checkoutHref)) return;
+    autoSubmittedRef.current = true;
+    void placeOrder();
+  }, [
+    autoPlace,
+    draft,
+    promoChecking,
+    awaitingBuyNowResolution,
+    unresolvedSelection,
+    checkoutHref,
+  ]);
+
   if (draftUnavailable) {
     return (
       <div
@@ -640,6 +670,68 @@ export function CheckoutConfirmView({
           <Link href="/collections" className="text-sm text-cta hover:underline">
             Continue shopping
           </Link>
+        </div>
+      </div>
+    );
+  }
+
+  // auto=1 submission screen: the order is being placed without an extra
+  // review step, so this page only reports progress and the recovery states.
+  if (autoPlace) {
+    return (
+      <div className="mx-auto flex max-w-[560px] flex-col items-center gap-4 px-4 py-16 text-center">
+        <h1 className="text-2xl font-semibold text-ink">
+          {phase === "UNKNOWN"
+            ? "We couldn't confirm your order yet"
+            : error
+              ? "We couldn't place your order"
+              : "Placing your order…"}
+        </h1>
+        {error ? (
+          <p role="alert" data-testid="confirm-auto-error" className="text-sm text-sale">
+            {error}
+          </p>
+        ) : phase === "UNKNOWN" ? (
+          <p data-testid="confirm-unknown" className="text-sm text-ink-secondary">
+            It may already have gone through. Tap TRY AGAIN to check the same
+            attempt — you won&apos;t be charged twice.
+          </p>
+        ) : (
+          <p data-testid="confirm-auto-progress" className="text-sm text-ink-secondary">
+            {phase === "CONFIRMING"
+              ? "We're confirming your order. Please keep this page open — this can take a few seconds."
+              : "Sending your Cash on Delivery order — this can take a few seconds."}
+          </p>
+        )}
+        <div className="w-full">
+          <Button
+            onClick={placeOrder}
+            disabled={busy || promoChecking || (!error && phase !== "UNKNOWN")}
+            className="w-full"
+            data-testid="confirm-place-order"
+          >
+            {phase === "UNKNOWN" || error
+              ? "TRY AGAIN"
+              : phase === "CONFIRMING"
+                ? "Confirming your order…"
+                : "Placing order…"}
+          </Button>
+          {error || phase === "UNKNOWN" ? (
+            <Link href={editHref} className="mt-3 inline-block text-sm text-cta hover:underline">
+              Back to checkout
+            </Link>
+          ) : null}
+        </div>
+        {/* Headless promo validation: the code came from the form page and the
+            priced result must exist before the request is built, but this
+            submission screen shows no editable promo field. */}
+        <div hidden>
+          <PromoCodeField
+            subtotal={checkout.totals.subtotal}
+            initialCode={draft.promoCode ?? ""}
+            onApplied={setAppliedPromo}
+            onCheckingChange={setPromoChecking}
+          />
         </div>
       </div>
     );

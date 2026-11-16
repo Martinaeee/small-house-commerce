@@ -170,7 +170,7 @@ describe("CheckoutForm promo code", () => {
       null,
     );
     expect(routerMock.push).toHaveBeenCalledWith(
-      "/checkout/confirm?items=item-1",
+      "/checkout/confirm?items=item-1&auto=1",
     );
   });
 
@@ -373,26 +373,41 @@ describe("CheckoutForm mobile summary order", () => {
     }));
     expect(routerMock.push).not.toHaveBeenCalled();
   });
-  it("keeps the totals above the name field on phones and leaves the desktop grid alone", () => {
+  it("lays the page out address → summary → notes → submit", () => {
     render(<CheckoutForm itemsParam="item-1" />);
 
     const totals = screen.getByTestId("checkout-totals");
-    const delivery = document
-      .getElementById("checkout-name")!
-      .closest("section")!.parentElement!;
-    // The summary card now carries the items and the totals in one block.
-    const summaryWrapper = totals.closest("div.order-1") as HTMLElement;
+    const summarySection = totals.closest("section")!;
+    const address = screen.getByLabelText("Delivery address");
+    const notes = screen.getByLabelText("Order notes");
+    const submit = screen.getByTestId("review-order");
 
-    expect(summaryWrapper).toHaveClass("order-1", "lg:order-none");
-    expect(delivery).toHaveClass("order-3", "lg:order-none");
-    // On phones the totals are painted before the name field.
+    // One card carries the items and the totals together.
+    expect(summarySection).toHaveAttribute("aria-label", "Order summary");
+    expect(summarySection.contains(totals)).toBe(true);
+    // Shopee/JD checkout order: title, address, items, notes, submit.
     expect(
-      totals.compareDocumentPosition(delivery) &
+      address.compareDocumentPosition(summarySection) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
-    expect(screen.getByTestId("review-order").parentElement).toHaveClass(
-      "order-6",
-      "lg:order-none",
-    );
+    expect(
+      summarySection.compareDocumentPosition(notes) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      notes.compareDocumentPosition(submit) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    // With no saved address the card invites adding one instead of shouting.
+    expect(address).toHaveTextContent(/No delivery address yet/);
+  });
+
+  it("opens the address dialog when PLACE ORDER fails validation", async () => {
+    validationMock.validateCheckoutForm.mockReturnValue({ name: "Full name is required" });
+    render(<CheckoutForm itemsParam="item-1" />);
+    await userEvent.setup().click(screen.getByTestId("review-order"));
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(screen.getByTestId("checkout-address-submit")).toBeInTheDocument();
+    expect(routerMock.push).not.toHaveBeenCalled();
   });
 });

@@ -33,9 +33,9 @@ import { useCheckoutLines } from "./useCheckoutLines";
 import { OrderPreview } from "./OrderPreview";
 import { CheckoutTrustStrip } from "./CheckoutTrustStrip";
 import { checkoutInputCls } from "./checkoutFieldStyles";
-import { PsgcAddressSelects } from "./PsgcAddressSelects";
 import { checkoutQueryString } from "./checkoutItems";
 import { PromoCodeField, type AppliedPromo } from "./PromoCodeField";
+import { CheckoutAddressDialog } from "./CheckoutAddressDialog";
 import { NewsletterOfferPrompt } from "@/components/newsletter/NewsletterOfferPrompt";
 
 import {
@@ -160,6 +160,17 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
   const [promoChecking, setPromoChecking] = useState(false);
   // The summary block can be collapsed so the shopper reaches the form first.
   const [summaryOpen, setSummaryOpen] = useState(true);
+  // Address-first checkout: the address is collected in a modal (Shopee-style)
+  // and the page keeps a compact card once it is saved.
+  const [addressOpen, setAddressOpen] = useState(false);
+  const addressReady = Boolean(
+    form.name.trim() &&
+      form.phone.trim() &&
+      form.province.trim() &&
+      form.city.trim() &&
+      form.streetAddress.trim(),
+  );
+  const addressAutoOpenedRef = useRef(false);
 
   const {
     isBuyNow,
@@ -185,6 +196,15 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
   const [promoInput, setPromoInput] = useState("");
   const [draftTouched, setDraftTouched] = useState(false);
   const [autosaveRestored, setAutosaveRestored] = useState(false);
+  // Address-first checkout: open the address modal once the draft restore has
+  // settled and the form still has no saved address. Guarded by a ref so a
+  // cancelled dialog is not reopened by a later render.
+  useEffect(() => {
+    if (!ready || !autosaveRestored || addressReady) return;
+    if (addressAutoOpenedRef.current) return;
+    addressAutoOpenedRef.current = true;
+    setAddressOpen(true);
+  }, [ready, autosaveRestored, addressReady]);
   // Synchronous twin of draftTouched: the restore promise must not overwrite
   // a field the shopper has already edited in this visit.
   const draftTouchedRef = useRef(false);
@@ -410,7 +430,7 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
   // Use my location (spec §3.4): geolocation → Nominatim reverse geocode →
   // confidence-fill province/city via the same handlers as manual selection.
   // Barangay is left blank for the user to pick (spec §3.4: 命中才填; the
-  // per-city barangay list is only fetched by PsgcAddressSelects).
+  // per-city barangay list is only fetched by the address dialog).
   const handleUseMyLocation = () => {
     setLocationError(null);
     setLocationNotice(null);
@@ -476,6 +496,29 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
     );
   };
 
+  const setField = (field: CheckoutField, value: string) => {
+    markDraftTouched();
+    setForm((f) => ({ ...f, [field]: value }));
+    setErrors((current) => {
+      if (!current[field]) return current;
+      const next = { ...current };
+      delete next[field];
+      return next;
+    });
+  };
+
+  function submitAddress() {
+    const validation = validateCheckoutForm(form);
+    setErrors(validation);
+    if (Object.keys(validation).length > 0) {
+      const firstInvalid = CHECKOUT_FIELD_ORDER.find((field) => validation[field]);
+      const focusId = firstInvalid ? FIELD_ELEMENT_ID[firstInvalid] : undefined;
+      if (focusId) document.getElementById(focusId)?.focus();
+      return;
+    }
+    setAddressOpen(false);
+  }
+
   function goToReview() {
     if (promoChecking) return;
     const trackingItems = orderItems.map((item, index) => ({ ...item, variantName: lines[index]?.variant ?? null }));
@@ -487,7 +530,13 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
     if (Object.keys(validation).length > 0) {
       const firstInvalid = CHECKOUT_FIELD_ORDER.find((field) => validation[field]);
       const focusId = firstInvalid ? FIELD_ELEMENT_ID[firstInvalid] : undefined;
-      if (focusId) document.getElementById(focusId)?.focus();
+      if (!addressReady) {
+        // The address fields live in the modal; open it so the shopper sees
+        // the errors instead of a focus() into an unmounted input.
+        setAddressOpen(true);
+      } else if (focusId) {
+        document.getElementById(focusId)?.focus();
+      }
       recordSubmitFailure({
         occurrence, step: "form", reason: "VALIDATION", field: firstInvalid,
         error: new Error(firstInvalid ? validation[firstInvalid] : "Checkout form is incomplete"),
@@ -507,7 +556,10 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
       landmark: form.landmark.trim() || "",
     }, form.preferredDeliveryDate.trim() || null, undefined, appliedPromo?.code ?? null, form.notes.trim() || null);
     flushAutosave();
-    router.push(`/checkout/confirm${checkoutQueryString({ skuId, qty, itemsParam, slug })}`);
+    const query = checkoutQueryString({ skuId, qty, itemsParam, slug });
+    // The shopper already reviewed the address and the summary here: the
+    // confirmation page places the order itself instead of asking again.
+    router.push(`/checkout/confirm${query}${query ? "&" : "?"}auto=1`);
   }
 
   if (!isBuyNow && cartLoading) {
@@ -579,8 +631,8 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
   }
 
   return (
-    <div data-checkout-page className="mx-auto max-w-[1200px] px-4 py-6 sm:px-6 sm:py-8">
-      <div className="mb-6 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+    <div data-checkout-page className="mx-auto max-w-[760px] px-4 py-6 sm:px-6 sm:py-8">
+      <div className="mb-5 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <h1 className="text-[2rem] font-bold tracking-[-0.02em] text-ink sm:text-[2.25rem]">Checkout</h1>
         <p
           data-testid="checkout-need-help"
@@ -608,373 +660,273 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
         </p>
       </div>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-5 lg:gap-8">
-        {/* 1. Order summary — one block with the item list, the money rows and
-            a collapse toggle, so the shopper reads it like a receipt summary
-            instead of two separate cards. */}
-        <div className="order-1 lg:order-none lg:col-start-1 lg:col-span-2 lg:row-start-1">
-          <div className="overflow-hidden rounded-lg border border-border bg-card">
-            <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-3 sm:px-5">
-              <h2 className="text-lg font-semibold text-ink">
-                Order Summary
-                <span className="ml-2 text-sm font-normal text-ink-muted">
-                  ({summaryUnits} {summaryUnits === 1 ? "Item" : "Items"})
-                </span>
-              </h2>
-              <button
-                type="button"
-                data-testid="checkout-summary-toggle"
-                aria-expanded={summaryOpen}
-                onClick={() => setSummaryOpen((open) => !open)}
-                className="inline-flex items-center gap-1 text-sm font-medium text-ink-secondary transition hover:text-cta"
-              >
-                {summaryOpen ? "Hide" : "Show"}
-                <svg
-                  viewBox="0 0 24 24"
-                  className={`h-4 w-4 transition-transform ${summaryOpen ? "rotate-180" : ""}`}
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.8"
-                  aria-hidden="true"
-                >
-                  <path d="m6 9 6 6 6-6" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-              </button>
-            </div>
-
-            {summaryOpen ? (
-              <>
-                <div className="px-4 py-1 sm:px-5">
-                  {isBuyNow && product === null && !productError ? (
-                    <p className="py-2 text-sm text-ink-muted">Loading item…</p>
-                  ) : lines.length === 0 ? (
-                    <p className="py-2 text-sm text-ink-muted">Item details unavailable.</p>
-                  ) : (
-                    <OrderPreview lines={lines} />
-                  )}
-                </div>
-
-                <div
-                  data-testid="checkout-totals"
-                  className="border-t border-border px-4 py-4 sm:px-5"
-                >
-                  <dl className="flex flex-col gap-2.5 text-sm">
-                    <div className="flex justify-between">
-                      <dt className="text-ink-secondary">Item Subtotal</dt>
-                      <dd className="font-medium text-ink">
-                        {isBuyNow && total === null ? (
-                          "Calculated at checkout"
-                        ) : totals.savings > 0 ? (
-                          <span data-testid="checkout-subtotal-compare" className="text-ink-muted">
-                            {formatPrice(totals.compareAtTotal)}
-                          </span>
-                        ) : (
-                          formatPrice(totals.subtotal)
-                        )}
-                      </dd>
-                    </div>
-                    {totals.savings > 0 && !(isBuyNow && total === null) && (
-                      <div className="flex justify-between">
-                        <dt className="text-ink-secondary">You save</dt>
-                        <dd className="font-medium text-sale">−{formatPrice(totals.savings)}</dd>
-                      </div>
-                    )}
-                    {totals.discount > 0 && (
-                      <div className="flex justify-between">
-                        <dt className="text-ink-secondary">Discount</dt>
-                        <dd className="font-medium text-sale">−{formatPrice(totals.discount)}</dd>
-                      </div>
-                    )}
-                    {appliedPromo && appliedPromo.discountAmount > 0 && (
-                      <div className="flex justify-between" data-testid="checkout-promo-discount">
-                        <dt className="text-ink-secondary">Promo discount</dt>
-                        <dd className="font-medium text-sale">−{formatPrice(appliedPromo.discountAmount)}</dd>
-                      </div>
-                    )}
-                    <div className="flex justify-between">
-                      <dt className="text-ink-secondary">Shipping</dt>
-                      <dd className="font-semibold text-ink">Free</dd>
-                    </div>
-                    <div className="flex justify-between border-t border-border pt-3 text-base">
-                      <dt className="font-semibold text-ink">Total (COD)</dt>
-                      <dd className="font-bold text-ink">
-                        {discountedTotal !== null ? formatPrice(discountedTotal) : "Calculated at checkout"}
-                      </dd>
-                    </div>
-                  </dl>
-
-                  <PromoCodeField
-                    subtotal={totals.subtotal}
-                    initialCode={initialPromoCode}
-                    onApplied={setAppliedPromo}
-                    onCheckingChange={setPromoChecking}
-                    onInputChange={(value, edited) => {
-                      if (edited) markDraftTouched();
-                      setPromoInput(value);
-                    }}
-                  />
-                  <NewsletterOfferPrompt appliedCode={appliedPromo?.code ?? null} />
-                </div>
-              </>
-            ) : null}
+      <div className="flex flex-col gap-4">
+        {/* 1. Delivery address — a compact card; the address itself is edited
+            in the New Address dialog (Shopee layout). */}
+        <section className="overflow-hidden rounded-lg border border-border bg-card" aria-label="Delivery address">
+          <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-3 sm:px-5">
+            <h2 className="flex items-center gap-2 text-lg font-semibold text-ink">
+              <svg viewBox="0 0 24 24" className="h-5 w-5 text-cta" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
+                <path d="M12 21s7-5.1 7-11a7 7 0 1 0-14 0c0 5.9 7 11 7 11z" strokeLinejoin="round" />
+                <circle cx="12" cy="10" r="2.5" />
+              </svg>
+              Delivery Address
+            </h2>
+            <button
+              type="button"
+              data-testid="checkout-open-address"
+              onClick={() => setAddressOpen(true)}
+              className="text-sm font-medium text-cta hover:underline"
+            >
+              {addressReady ? "Change" : "Add address"}
+            </button>
           </div>
-        </div>
-
-        {/* 2. Delivery information — ONE compact card for who, where and the
-            shopper's note. It used to be two cards with their own headers and
-            padding, which made the form tall and repetitive. */}
-        <div className="order-3 lg:order-none lg:col-start-3 lg:col-span-3 lg:row-start-1 lg:row-span-2">
-          <section className="rounded-lg border border-border bg-card p-4 sm:p-5">
-            <div className="mb-3 flex items-center justify-between gap-3">
-              <h2 className="text-lg font-semibold text-ink">Delivery information</h2>
-              <button
-                type="button"
-                data-testid="use-my-location"
-                onClick={handleUseMyLocation}
-                disabled={locating}
-                className="inline-flex shrink-0 items-center gap-1.5 text-[13px] font-medium text-cta hover:underline disabled:opacity-60"
-              >
-                <svg
-                  viewBox="0 0 24 24"
-                  className="h-4 w-4"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth={2}
-                  aria-hidden="true"
-                >
-                  <path
-                    d="M12 21s7-5.1 7-11a7 7 0 1 0-14 0c0 5.9 7 11 7 11z"
-                    strokeLinejoin="round"
-                  />
-                  <circle cx="12" cy="10" r="2.5" />
-                </svg>
-                {locating ? "Locating…" : "Use my location"}
-              </button>
-            </div>
+          <div className="px-4 py-4 sm:px-5">
+            {addressReady ? (
+              <>
+                <p className="text-sm font-semibold text-ink">
+                  {form.name}
+                  <span className="font-normal text-ink-secondary"> · {form.phone}</span>
+                </p>
+                <p className="mt-1 text-sm leading-6 text-ink-secondary">
+                  {[form.streetAddress, form.barangay, form.city, form.province, form.postalCode]
+                    .filter(Boolean)
+                    .join(", ")}
+                </p>
+                {form.landmark ? (
+                  <p className="mt-0.5 text-xs text-ink-muted">Landmark: {form.landmark}</p>
+                ) : null}
+              </>
+            ) : (
+              <p className="text-sm text-ink-secondary">
+                No delivery address yet — add one to continue.
+              </p>
+            )}
             <p
               data-testid="checkout-autosave-status"
               aria-live="polite"
-              className="mb-2 text-xs text-ink-muted"
+              className="mt-3 text-xs text-ink-muted"
             >
               {autosaveStatusLabel(autosaveStatus)}
             </p>
-            {locationError && (
-              <p
-                role="alert"
-                data-testid="location-error"
-                className="mb-3 text-xs text-sale"
-              >
-                {locationError}
-              </p>
-            )}
-            {locationNotice && (
-              <p
-                role="status"
-                data-testid="location-notice"
-                className="mb-3 text-xs text-ink-secondary"
-              >
-                {locationNotice}
-              </p>
-            )}
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <label className="flex flex-col gap-1 text-[13px] font-medium text-ink">
-                Full Name *
-                <input
-                  id="checkout-name"
-                  className={`${inputCls}${errors.name ? " border-sale" : ""}`}
-                  value={form.name}
-                  onChange={set("name")}
-                  onBlur={revalidate("name")}
-                  aria-invalid={Boolean(errors.name)}
-                  aria-describedby={errors.name ? "checkout-name-error" : undefined}
-                  placeholder="Juan Dela Cruz"
-                />
-                <FieldError id="checkout-name" message={errors.name} />
-              </label>
-              <label className="flex flex-col gap-1 text-[13px] font-medium text-ink">
-                Mobile Number *
-                <input
-                  id="checkout-phone"
-                  className={`${inputCls}${errors.phone ? " border-sale" : ""}`}
-                  value={form.phone}
-                  onChange={set("phone")}
-                  onBlur={revalidate("phone")}
-                  aria-invalid={Boolean(errors.phone)}
-                  aria-describedby={errors.phone ? "checkout-phone-error" : undefined}
-                  placeholder="0917 123 4567"
-                  inputMode="tel"
-                  autoComplete="tel"
-                />
-                <FieldError id="checkout-phone" message={errors.phone} />
-              </label>
-              <PsgcAddressSelects
-                province={form.province}
-                city={form.city}
-                barangay={form.barangay}
-                onProvinceChange={handleProvinceChange}
-                onCityChange={handleCityChange}
-                onBarangayChange={handleBarangayChange}
-                errors={errors}
-                onBlurField={(field) => revalidate(field)()}
-                inputCls={inputCls}
-              />
-              <div className="flex flex-col gap-1">
-                <label className="flex flex-col gap-1 text-[13px] font-medium text-ink">
-                  Postal Code
-                  <input
-                    id="checkout-postal-code"
-                    data-testid="checkout-postal-code"
-                    className={inputCls}
-                    value={form.postalCode}
-                    onChange={set("postalCode")}
-                    placeholder="1100"
-                    inputMode="numeric"
-                  />
-                </label>
-                {/* Metro Manila cities are covered by several ZIPs (one per
-                    area); when the barangay didn't pin one down, let the
-                    shopper choose instead of guessing. */}
-                {postalLookup.options.length > 1 ? (
-                  <select
-                    data-testid="checkout-postal-code-pick"
-                    aria-label="Pick a postal code"
-                    className={inputCls}
-                    value={
-                      postalLookup.options.some((o) => o.zip === form.postalCode)
-                        ? form.postalCode
-                        : ""
-                    }
-                    onChange={(e) =>
-                      setForm((f) => ({ ...f, postalCode: e.target.value }))
-                    }
-                  >
-                    <option value="">
-                      {postalLookup.auto
-                        ? "Change postal code"
-                        : `This city has ${postalLookup.options.length} ZIPs — pick one`}
-                    </option>
-                    {postalLookup.options.map((o) => (
-                      <option key={o.zip} value={o.zip}>
-                        {`${o.zip} — ${o.label}`}
-                      </option>
-                    ))}
-                  </select>
-                ) : null}
-                {postalLookup.auto && form.postalCode === postalLookup.auto ? (
-                  <span
-                    data-testid="checkout-postal-code-hint"
-                    className="text-xs font-normal text-ink-muted"
-                  >
-                    Filled in from your address — you can change it.
-                  </span>
-                ) : null}
-              </div>
-              <label className="col-span-full flex flex-col gap-1 text-[13px] font-medium text-ink">
-                Full Address *
-                <input
-                  id="checkout-address"
-                  className={`${inputCls}${errors.streetAddress ? " border-sale" : ""}`}
-                  value={form.streetAddress}
-                  onChange={set("streetAddress")}
-                  onBlur={revalidate("streetAddress")}
-                  aria-invalid={Boolean(errors.streetAddress)}
-                  aria-describedby={
-                    errors.streetAddress ? "checkout-address-error" : undefined
-                  }
-                  placeholder="House no., street, subdivision"
-                />
-                <FieldError id="checkout-address" message={errors.streetAddress} />
-              </label>
-              <label className="col-span-full flex flex-col gap-1 text-[13px] font-medium text-ink">
-                Landmark (Optional)
-                <input
-                  className={inputCls}
-                  value={form.landmark}
-                  onChange={set("landmark")}
-                  placeholder="Nearby building or landmark"
-                />
-              </label>
-              <label className="col-span-full flex flex-col gap-1 text-[13px] font-medium text-ink">
-                Preferred delivery date (optional)
-                <input
-                  id="checkout-preferred-date"
-                  type="date"
-                  data-testid="checkout-preferred-date"
-                  className={`${inputCls}${errors.preferredDeliveryDate ? " border-sale" : ""}`}
-                  min={dateBounds.min}
-                  max={dateBounds.max}
-                  value={form.preferredDeliveryDate}
-                  onChange={onPreferredDateChange}
-                  aria-invalid={Boolean(errors.preferredDeliveryDate)}
-                  aria-describedby={
-                    errors.preferredDeliveryDate ? "checkout-preferred-date-error" : undefined
-                  }
-                />
-                <FieldError
-                  id="checkout-preferred-date"
-                  testId="checkout-preferred-date-error"
-                  message={errors.preferredDeliveryDate}
-                />
-              </label>
-              <p
-                data-testid="checkout-preferred-date-hint"
-                className="col-span-full -mt-1 text-xs text-ink-muted"
-              >
-                {form.province.trim()
-                  ? `Delivery ${deliveryWindowFor(form.province)} · Choose a preferred date (optional).`
-                  : "Choose a preferred date (optional)."}
-              </p>
-              <label className="col-span-full flex flex-col gap-1 text-[13px] font-medium text-ink">
-                Order Notes (Optional)
-                <textarea
-                  id="checkout-notes"
-                  data-testid="checkout-notes"
-                  className={`${inputCls} resize-y`}
-                  rows={2}
-                  maxLength={200}
-                  value={form.notes}
-                  onChange={(e) => {
-                    markDraftTouched();
-                    setForm((f) => ({ ...f, notes: e.target.value }));
-                  }}
-                  placeholder="Any special delivery instructions? (e.g. Please call before delivery)"
-                />
-                <span className="text-xs font-normal text-ink-muted">
-                  We&apos;ll do our best to accommodate your request.
-                </span>
-              </label>
-              <p data-testid="checkout-privacy-note" className="col-span-full text-xs text-ink-secondary">
-                Your information is used only to process and deliver your order.
-              </p>
-            </div>
-          </section>
-        </div>
+          </div>
+        </section>
 
-          <div className="order-4 lg:order-none">
-            <CheckoutTrustStrip
-              deliveryRange={
-                form.province.trim()
-                  ? deliveryWindowFor(form.province)
-                  : "as fast as 7 days"
-              }
-            />
+        {/* 2. Order summary — items, the money rows and the promo field in one
+            collapsible receipt block. */}
+        <section className="overflow-hidden rounded-lg border border-border bg-card" aria-label="Order summary">
+          <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-3 sm:px-5">
+            <h2 className="text-lg font-semibold text-ink">
+              Order Summary
+              <span className="ml-2 text-sm font-normal text-ink-muted">
+                ({summaryUnits} {summaryUnits === 1 ? "Item" : "Items"})
+              </span>
+            </h2>
+            <button
+              type="button"
+              data-testid="checkout-summary-toggle"
+              aria-expanded={summaryOpen}
+              onClick={() => setSummaryOpen((open) => !open)}
+              className="inline-flex items-center gap-1 text-sm font-medium text-ink-secondary transition hover:text-cta"
+            >
+              {summaryOpen ? "Hide" : "Show"}
+              <svg
+                viewBox="0 0 24 24"
+                className={`h-4 w-4 transition-transform ${summaryOpen ? "rotate-180" : ""}`}
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                aria-hidden="true"
+              >
+                <path d="m6 9 6 6 6-6" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
           </div>
 
-        {/* 5. Review CTA (mobile bottom; desktop right column, row 3) */}
-        <div className="order-6 lg:order-none lg:col-start-3 lg:col-span-3 lg:row-start-3">
+          {summaryOpen ? (
+            <>
+              <div className="px-4 py-1 sm:px-5">
+                {isBuyNow && product === null && !productError ? (
+                  <p className="py-2 text-sm text-ink-muted">Loading item…</p>
+                ) : lines.length === 0 ? (
+                  <p className="py-2 text-sm text-ink-muted">Item details unavailable.</p>
+                ) : (
+                  <OrderPreview lines={lines} />
+                )}
+              </div>
+
+              <div
+                data-testid="checkout-totals"
+                className="border-t border-border px-4 py-4 sm:px-5"
+              >
+                <dl className="flex flex-col gap-2.5 text-sm">
+                  <div className="flex justify-between">
+                    <dt className="text-ink-secondary">Item Subtotal</dt>
+                    <dd className="font-medium text-ink">
+                      {isBuyNow && total === null ? (
+                        "Calculated at checkout"
+                      ) : totals.savings > 0 ? (
+                        <span data-testid="checkout-subtotal-compare" className="text-ink-muted">
+                          {formatPrice(totals.compareAtTotal)}
+                        </span>
+                      ) : (
+                        formatPrice(totals.subtotal)
+                      )}
+                    </dd>
+                  </div>
+                  {totals.savings > 0 && !(isBuyNow && total === null) && (
+                    <div className="flex justify-between">
+                      <dt className="text-ink-secondary">You save</dt>
+                      <dd className="font-medium text-sale">−{formatPrice(totals.savings)}</dd>
+                    </div>
+                  )}
+                  {totals.discount > 0 && (
+                    <div className="flex justify-between">
+                      <dt className="text-ink-secondary">Discount</dt>
+                      <dd className="font-medium text-sale">−{formatPrice(totals.discount)}</dd>
+                    </div>
+                  )}
+                  {appliedPromo && appliedPromo.discountAmount > 0 && (
+                    <div className="flex justify-between" data-testid="checkout-promo-discount">
+                      <dt className="text-ink-secondary">Promo discount</dt>
+                      <dd className="font-medium text-sale">−{formatPrice(appliedPromo.discountAmount)}</dd>
+                    </div>
+                  )}
+                  <div className="flex justify-between">
+                    <dt className="text-ink-secondary">Shipping</dt>
+                    <dd className="font-semibold text-ink">Free</dd>
+                  </div>
+                  <div className="flex justify-between border-t border-border pt-3 text-base">
+                    <dt className="font-semibold text-ink">Total (COD)</dt>
+                    <dd className="font-bold text-ink">
+                      {discountedTotal !== null ? formatPrice(discountedTotal) : "Calculated at checkout"}
+                    </dd>
+                  </div>
+                </dl>
+
+                <PromoCodeField
+                  subtotal={totals.subtotal}
+                  initialCode={initialPromoCode}
+                  onApplied={setAppliedPromo}
+                  onCheckingChange={setPromoChecking}
+                  onInputChange={(value, edited) => {
+                    if (edited) markDraftTouched();
+                    setPromoInput(value);
+                  }}
+                />
+                <NewsletterOfferPrompt appliedCode={appliedPromo?.code ?? null} />
+              </div>
+            </>
+          ) : null}
+        </section>
+
+        {/* 3. Order notes — the delivery date and the shopper's note. */}
+        <section className="rounded-lg border border-border bg-card p-4 sm:p-5" aria-label="Order notes">
+          <h2 className="mb-3 text-lg font-semibold text-ink">Order Notes</h2>
+          <div className="flex flex-col gap-3">
+            <label className="flex flex-col gap-1 text-[13px] font-medium text-ink">
+              Preferred delivery date (optional)
+              <input
+                id="checkout-preferred-date"
+                type="date"
+                data-testid="checkout-preferred-date"
+                className={`${inputCls}${errors.preferredDeliveryDate ? " border-sale" : ""}`}
+                min={dateBounds.min}
+                max={dateBounds.max}
+                value={form.preferredDeliveryDate}
+                onChange={onPreferredDateChange}
+                aria-invalid={Boolean(errors.preferredDeliveryDate)}
+                aria-describedby={
+                  errors.preferredDeliveryDate ? "checkout-preferred-date-error" : undefined
+                }
+              />
+              <FieldError
+                id="checkout-preferred-date"
+                testId="checkout-preferred-date-error"
+                message={errors.preferredDeliveryDate}
+              />
+            </label>
+            <p
+              data-testid="checkout-preferred-date-hint"
+              className="-mt-1 text-xs text-ink-muted"
+            >
+              {form.province.trim()
+                ? `Delivery ${deliveryWindowFor(form.province)} · Choose a preferred date (optional).`
+                : "Choose a preferred date (optional)."}
+            </p>
+            <label className="flex flex-col gap-1 text-[13px] font-medium text-ink">
+              Order Notes (Optional)
+              <textarea
+                id="checkout-notes"
+                data-testid="checkout-notes"
+                className={`${inputCls} resize-y`}
+                rows={2}
+                maxLength={200}
+                value={form.notes}
+                onChange={(e) => {
+                  markDraftTouched();
+                  setForm((f) => ({ ...f, notes: e.target.value }));
+                }}
+                placeholder="Any special delivery instructions? (e.g. Please call before delivery)"
+              />
+              <span className="text-xs font-normal text-ink-muted">
+                We&apos;ll do our best to accommodate your request.
+              </span>
+            </label>
+            <p data-testid="checkout-privacy-note" className="text-xs text-ink-secondary">
+              Your information is used only to process and deliver your order.
+            </p>
+          </div>
+        </section>
+
+        {/* 4. Submit — the address and summary were just reviewed, so the
+            confirmation step places the order itself. */}
+        <div>
           <Button
             onClick={goToReview}
             className="w-full"
             data-testid="review-order"
             disabled={promoChecking}
           >
-            REVIEW ORDER
+            PLACE ORDER
           </Button>
-          <p className="mt-2 text-center text-xs text-ink-muted">
-            Cash on Delivery
-          </p>
+          <p className="mt-2 text-center text-xs text-ink-muted">Cash on Delivery</p>
         </div>
+
+        <CheckoutTrustStrip
+          deliveryRange={
+            form.province.trim()
+              ? deliveryWindowFor(form.province)
+              : "as fast as 7 days"
+          }
+        />
       </div>
+
+      <CheckoutAddressDialog
+        open={addressOpen}
+        values={{
+          name: form.name,
+          phone: form.phone,
+          province: form.province,
+          city: form.city,
+          barangay: form.barangay,
+          postalCode: form.postalCode,
+          streetAddress: form.streetAddress,
+          landmark: form.landmark,
+        }}
+        errors={errors}
+        postalAuto={postalLookup.auto}
+        locating={locating}
+        locationError={locationError}
+        locationNotice={locationNotice}
+        onChange={setField}
+        onProvinceChange={handleProvinceChange}
+        onCityChange={handleCityChange}
+        onBarangayChange={handleBarangayChange}
+        onUseMyLocation={handleUseMyLocation}
+        onCancel={() => setAddressOpen(false)}
+        onSubmit={submitAddress}
+      />
     </div>
   );
 }

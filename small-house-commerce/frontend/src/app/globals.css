@@ -299,7 +299,7 @@
    Scoped to the checkout routes only; every other page is untouched.
    ------------------------------------------------------------------ */
 [data-checkout-header] {
-  background-color: #1f2a24;
+  background-color: #244c3c;
 }
 [data-checkout-header] header {
   background-color: transparent;

@@ -7,7 +7,9 @@ import { ApiTimeoutError } from "@/lib/api";
 import {
   ATTEMPT_POLL_INTERVAL_MS,
   PLACE_ORDER_RECOVERY_WINDOW_MS,
+  beginCheckoutSubmission,
 } from "@/lib/checkout-submission";
+import { checkoutQueryString } from "./checkoutItems";
 import { SiteSettingsProvider } from "@/components/site/SiteSettingsProvider";
 import { DEFAULT_SITE_SETTINGS } from "@/lib/site-settings";
 
@@ -958,5 +960,63 @@ describe("CheckoutConfirmView storage fallback", () => {
     expect(
       screen.getByRole("link", { name: "Back to checkout" }),
     ).toHaveAttribute("href", "/checkout?skuId=sku-red-small&slug=chair");
+  });
+});
+
+/**
+ * auto=1 (checkout form PLACE ORDER): the address and the summary were
+ * already reviewed on the form, so this page places the order on arrival —
+ * once, and never when a durable attempt already exists.
+ */
+describe("CheckoutConfirmView auto placement", () => {
+  it("places the order on arrival instead of asking for a second confirmation", async () => {
+    apiMock.getProductBySlug.mockResolvedValue(product);
+    apiMock.createOrder.mockResolvedValue({
+      orderNumber: "PH3101",
+      orderStatus: "NEW",
+      confirmationStatus: "UNCONFIRMED",
+      grandTotal: 100,
+    });
+    render(
+      <CheckoutConfirmView skuId="sku-red-small" qty="1" slug="chair" autoPlace />,
+    );
+
+    await waitFor(() => expect(apiMock.createOrder).toHaveBeenCalledTimes(1));
+    expect(routerMock.push).toHaveBeenCalledWith("/order-success/PH3101");
+    // No review screen is rendered and the submission never re-fires.
+    expect(screen.queryByText("Confirm your order")).toBeNull();
+    expect(
+      screen.getByTestId("confirm-place-order"),
+    ).toBeDisabled();
+    expect(apiMock.createOrder).toHaveBeenCalledTimes(1);
+    expect(eventsMock.recordSubmitAttempt).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves a stored attempt to its recovery path instead of resubmitting", async () => {
+    apiMock.getProductBySlug.mockResolvedValue(product);
+    const href = `/checkout${checkoutQueryString({
+      skuId: "sku-red-small",
+      qty: "1",
+      slug: "chair",
+    })}`;
+    beginCheckoutSubmission({
+      scope: href,
+      idempotencyKey: "stored-auto-key",
+      metaConsent: false,
+      attemptId: null,
+      startedAt: Date.now(),
+      payload: {} as never,
+    });
+
+    render(
+      <CheckoutConfirmView skuId="sku-red-small" qty="1" slug="chair" autoPlace />,
+    );
+
+    await waitFor(() =>
+      expect(screen.getByTestId("confirm-place-order")).toBeDisabled(),
+    );
+    expect(apiMock.createOrder).not.toHaveBeenCalled();
+    // The recovery loop polls the read-only attempt status instead.
+    expect(apiMock.checkoutAttemptStatus).toHaveBeenCalledWith("stored-auto-key");
   });
 });
