@@ -384,7 +384,7 @@ export function CheckoutAddressDialog({
                 data-testid="checkout-region-trigger"
                 aria-expanded={pickerOpen}
                 onClick={() => setPickerOpen((current) => !current)}
-                className="flex h-11 w-full items-center justify-between gap-3 px-3 text-left text-sm"
+                className="flex h-10 w-full items-center justify-between gap-3 px-3 text-left text-sm"
               >
                 <span className={regionText ? "text-ink" : "text-ink-muted"}>
                   {regionText || "Region, Province, City, Barangay"}
