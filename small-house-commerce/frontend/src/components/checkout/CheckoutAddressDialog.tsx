@@ -26,10 +26,7 @@ const TAB_LABELS: Record<RegionTab, string> = {
 
 /** Every one-line control shares this height so the sheet reads as a table. */
 const CONTROL_CLS =
-  "h-11 w-full rounded-md border px-3 text-base text-ink placeholder:text-ink-muted focus:border-cta focus:outline-none";
-
-const TEXTAREA_CLS =
-  "w-full rounded-md border px-3 py-2 text-base text-ink placeholder:text-ink-muted focus:border-cta focus:outline-none";
+  "h-10 w-full rounded-md border px-3 text-base text-ink placeholder:text-ink-muted focus:border-cta focus:outline-none";
 
 /**
  * Shopee-style address picker: one field that opens a searchable tab strip
@@ -434,7 +431,7 @@ export function CheckoutAddressDialog({
                     onChange={(event) => {
                       if (event.target.value) onChange("postalCode", event.target.value);
                     }}
-                    className="h-11 w-[46%] shrink-0 rounded-md border border-border bg-card px-2 text-[13px] text-ink focus:border-cta focus:outline-none"
+                    className="h-10 w-[46%] shrink-0 rounded-md border border-border bg-card px-2 text-[13px] text-ink focus:border-cta focus:outline-none"
                   >
                     <option value="">Pick a suggested ZIP</option>
                     {postalOptions.map((option) => (
@@ -454,9 +451,8 @@ export function CheckoutAddressDialog({
 
             <label className="flex flex-col gap-1 text-[13px] font-medium text-ink">
               Street Name, Building, House No. *
-              <textarea
+              <input
                 id="checkout-address"
-                rows={2}
                 value={values.streetAddress}
                 onChange={(event) => {
                   setTouchedAny(true);
@@ -465,7 +461,7 @@ export function CheckoutAddressDialog({
                 }}
                 aria-invalid={Boolean(errors.streetAddress)}
                 placeholder="Street Name, Building, House No."
-                className={`${TEXTAREA_CLS} resize-y ${
+                className={`${CONTROL_CLS} ${
                   errors.streetAddress ? "border-sale" : "border-border"
                 }`}
               />

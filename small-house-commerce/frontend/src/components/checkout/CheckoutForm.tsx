@@ -29,7 +29,6 @@ import { lookupPostalCode } from "@/lib/postalCodes";
 import { useCheckoutLines } from "./useCheckoutLines";
 import { OrderPreview } from "./OrderPreview";
 import { CheckoutTrustStrip } from "./CheckoutTrustStrip";
-import { checkoutInputCls } from "./checkoutFieldStyles";
 import { checkoutQueryString } from "./checkoutItems";
 import { PromoCodeField, type AppliedPromo } from "./PromoCodeField";
 import { CheckoutAddressDialog } from "./CheckoutAddressDialog";
@@ -58,8 +57,6 @@ import {
  *   ordered; after success those lines are removed while unselected lines
  *   stay in the cart. The backend re-validates stock for every submitted SKU.
  */
-
-const inputCls = checkoutInputCls;
 
 interface CheckoutFormProps {
   skuId?: string;
@@ -735,7 +732,7 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
               <textarea
                 id="checkout-notes"
                 data-testid="checkout-notes"
-                className={`${inputCls} resize-none text-sm`}
+                className="h-10 w-full resize-none rounded-lg border border-border bg-card px-3 py-1 text-sm text-ink placeholder:text-ink-muted focus:border-cta focus:outline-none"
                 rows={2}
                 maxLength={200}
                 value={form.notes}
