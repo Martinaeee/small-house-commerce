@@ -9,10 +9,10 @@ import { usePathname } from "next/navigation";
  * viewport would never be reachable on pages 1-2 screens tall, e.g. a short
  * catalog). Hidden controls leave the tab sequence (tabIndex -1).
  *
- * Bottom offsets clear the fixed mobile chrome that owns each route —
- * MobileTabBar's 4rem bar by default, and the taller (~7rem) shared-state
- * sticky buy bar on PDP/LP routes or CartView on the cart route. The desktop
- * offset stacks above the Messenger bubble's default 16px/56px slot.
+ * Bottom offsets clear the floating support bubble on ordinary pages and the
+ * taller (~7rem) shared-state sticky buy bar on PDP/LP routes or CartView on
+ * the cart route. The desktop offset also stacks above the Messenger bubble's
+ * default 16px/56px slot.
  */
 export function BackToTop() {
   const pathname = usePathname();
