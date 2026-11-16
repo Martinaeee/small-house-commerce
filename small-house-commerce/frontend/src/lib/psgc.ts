@@ -179,7 +179,6 @@ export interface NominatimSuggestion {
   province?: string;
   city?: string;
   barangay?: string;
-  postalCode?: string;
 }
 
 /**
@@ -217,7 +216,6 @@ export async function searchAddressSuggestions(
       neighbourhood?: string;
       quarter?: string;
       village?: string;
-      postcode?: string;
     };
   }>;
   return data
@@ -232,7 +230,6 @@ export async function searchAddressSuggestions(
         province: a.province ?? a.state ?? a.region,
         city: a.city ?? a.municipality ?? a.town,
         barangay: a.suburb ?? a.neighbourhood ?? a.quarter ?? a.village,
-        postalCode: a.postcode,
       };
     })
     .filter((suggestion) => suggestion.displayName !== "");

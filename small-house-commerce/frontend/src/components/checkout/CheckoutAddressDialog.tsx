@@ -281,7 +281,6 @@ export function CheckoutAddressDialog({
       }
     }
     if (streetText) onChange("streetAddress", streetText);
-    if (suggestion.postalCode) onChange("postalCode", suggestion.postalCode);
   };
 
   if (!open) return null;
