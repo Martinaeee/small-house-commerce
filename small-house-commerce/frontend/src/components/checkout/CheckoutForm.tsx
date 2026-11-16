@@ -741,27 +741,29 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
                   }}
                 />
                 <NewsletterOfferPrompt appliedCode={appliedPromo?.code ?? null} />
-                <div className="mt-3 border-t border-border pt-3">
-                  <label className="flex flex-col gap-1 text-[13px] font-medium text-ink">
-                    Order Notes (Optional)
-                    <textarea
-                      id="checkout-notes"
-                      data-testid="checkout-notes"
-                      className={`${inputCls} resize-none text-sm`}
-                      rows={2}
-                      maxLength={200}
-                      value={form.notes}
-                      onChange={(e) => {
-                        markDraftTouched();
-                        setForm((f) => ({ ...f, notes: e.target.value }));
-                      }}
-                      placeholder="Any special delivery instructions?"
-                    />
-                  </label>
-                </div>
               </div>
             </>
           ) : null}
+
+          {/* The note stays visible even when the items/totals block is collapsed. */}
+          <div className="border-t border-border px-4 py-3 sm:px-5">
+            <label className="flex flex-col gap-1 text-[13px] font-medium text-ink">
+              Order Notes (Optional)
+              <textarea
+                id="checkout-notes"
+                data-testid="checkout-notes"
+                className={`${inputCls} resize-none text-sm`}
+                rows={2}
+                maxLength={200}
+                value={form.notes}
+                onChange={(e) => {
+                  markDraftTouched();
+                  setForm((f) => ({ ...f, notes: e.target.value }));
+                }}
+                placeholder="Any special delivery instructions?"
+              />
+            </label>
+          </div>
         </section>
 
         {/* 3. Submit — the address and summary were just reviewed, so the
