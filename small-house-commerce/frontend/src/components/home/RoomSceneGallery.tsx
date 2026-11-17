@@ -9,6 +9,7 @@ import { PlaceholderImage } from "@/components/ui/PlaceholderImage";
 import { formatPrice } from "@/components/ui/PriceBox";
 import { RatingStars } from "@/components/product/RatingStars";
 import { cardPricePresentation } from "@/lib/product-card-presentation";
+import { productCoverMedia } from "@/lib/product-cover";
 import {
   createInitialSelection,
   resolveSelection,
@@ -378,7 +379,7 @@ export function RoomProductList({
       >
         {scene.hotspots.map((hotspot, index) => {
           const product = hotspot.product;
-          const cover = product.effectiveCoverMedia ?? null;
+          const cover = productCoverMedia(product);
           // The storefront hydrates a full product; a partial one (admin
           // payloads) still renders, it just carries no price.
           const price = Array.isArray(product.variants)

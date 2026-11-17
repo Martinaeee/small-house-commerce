@@ -20,6 +20,7 @@ import {
 } from "@/components/product/PdpPurchaseProvider";
 import { ProductOptionSelector } from "@/components/product/ProductOptionSelector";
 import { optimizedUploadImage } from "@/lib/image-url";
+import { productCoverMedia } from "@/lib/product-cover";
 
 interface QuickAddViewProps {
   product: Product;
@@ -135,7 +136,7 @@ function QuickAddPicker({
   const available = primaryDerived.availableInventory;
   const resolved = primaryDerived.resolvedVariant !== null;
   const outOfStock = resolved && available <= 0;
-  const cover = product.effectiveCoverMedia;
+  const cover = productCoverMedia(product);
   const media =
     activeDriverMedia(product, primaryLine.selectedValueIds) ?? cover;
   const price = cardPricePresentation(primaryDerived);

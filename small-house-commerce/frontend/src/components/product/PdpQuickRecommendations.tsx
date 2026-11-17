@@ -9,6 +9,7 @@ import { addToCartEvent, emitCommerceEvent } from "@/lib/commerce-events";
 import { formatPrice } from "@/components/ui/PriceBox";
 import { PlaceholderImage } from "@/components/ui/PlaceholderImage";
 import { optimizedUploadImage } from "@/lib/image-url";
+import { productCoverMedia } from "@/lib/product-cover";
 import { useDesktopViewport } from "./useDesktopViewport";
 import styles from "./PdpMobile.module.css";
 
@@ -103,14 +104,15 @@ export function PdpQuickRecommendations({ currentProduct, fallback }: {
           const off = direct ? discountPct(direct) : 0;
           const busy = busySlug === product.slug;
           const added = addedSlug === product.slug;
+          const cover = productCoverMedia(product);
           return (
             <li key={product.id} className={styles.quickCard}>
               <Link href={`/products/${product.slug}`} className={styles.quickMedia} aria-label={`View ${product.name}`}>
-                {product.effectiveCoverMedia ? (
+                {cover ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
-                    src={optimizedUploadImage(product.effectiveCoverMedia.url, 256)}
-                    alt={product.effectiveCoverMedia.altText ?? product.name}
+                    src={optimizedUploadImage(cover.url, 256)}
+                    alt={cover.altText ?? product.name}
                     loading="lazy"
                   />
                 ) : <PlaceholderImage label={product.name} />}

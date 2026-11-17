@@ -27,6 +27,7 @@ import {
 } from "@/lib/product-selection";
 import type { CartItem, Product } from "@/lib/api";
 import { optimizedUploadImage } from "@/lib/image-url";
+import { productCoverMedia } from "@/lib/product-cover";
 
 /**
  * Slide-in "Your Cart" drawer after every add-to-cart (spec §4.4). Right-side
@@ -555,7 +556,7 @@ export function CartDrawer() {
                         createInitialSelection(product, null),
                       );
                       const price = cardPricePresentation(derived);
-                      const image = product.effectiveCoverMedia;
+                      const image = productCoverMedia(product);
                       const busy = busySlug === product.slug;
                       const added = addedSlug === product.slug;
                       return (

@@ -631,10 +631,10 @@ describe('ProductsService scoped storefront payloads', () => {
       ],
     });
     expect(result.effectiveCoverMedia).toEqual({
-      id: 'exact-red',
-      url: '/exact-red.jpg',
-      type: 'VIDEO',
-      altText: 'exact-red alt',
+      id: 'shared-image',
+      url: '/shared.jpg',
+      type: 'IMAGE',
+      altText: 'shared-image alt',
       sortOrder: 0,
     });
     expect(result.availableMediaScopes).toEqual({
@@ -743,10 +743,10 @@ describe('ProductsService scoped storefront payloads', () => {
     const [result] = await service.storefrontByIds([PRODUCT_ID]);
 
     expect(result.effectiveCoverMedia).toEqual({
-      id: 'variant-cover',
-      url: '/variant-cover.mp4',
-      type: 'VIDEO',
-      altText: 'variant-cover alt',
+      id: 'red-thumb',
+      url: '/red-thumb.jpg',
+      type: 'IMAGE',
+      altText: 'red-thumb alt',
       sortOrder: 0,
     });
     expect(result.options[0].values).toEqual([
@@ -892,9 +892,13 @@ describe('StorefrontProductsController media query contract', () => {
         sortOrder: 0,
       },
     ]);
-    expect(response.effectiveCoverMedia).toEqual(
-      response.initialMediaSet.media[0],
-    );
+    expect(response.effectiveCoverMedia).toEqual({
+      id: 'shared-image',
+      url: '/shared.jpg',
+      type: 'IMAGE',
+      altText: 'shared-image alt',
+      sortOrder: 0,
+    });
     expect(Object.keys(response.effectiveCoverMedia!).sort()).toEqual([
       'altText',
       'id',

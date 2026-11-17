@@ -18,6 +18,7 @@ import { PlaceholderImage } from "@/components/ui/PlaceholderImage";
 import { formatPrice } from "@/components/ui/PriceBox";
 import { cardPricePresentation } from "@/lib/product-card-presentation";
 import { optimizedUploadImage } from "@/lib/image-url";
+import { productCoverMedia } from "@/lib/product-cover";
 import {
   createInitialSelection,
   resolveSelection,
@@ -359,7 +360,7 @@ export function SiteSearch() {
                   {results.map((product, index) => {
                     // Shared contracts: effective cover media and
                     // selection-derived price — never images[0]/variants[0].
-                    const cover = product.effectiveCoverMedia;
+                    const cover = productCoverMedia(product);
                     const price = cardPricePresentation(
                       resolveSelection(
                         product,

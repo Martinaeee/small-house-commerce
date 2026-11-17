@@ -7,6 +7,7 @@ import { parseScenes } from "./room-scenes";
 import { RoomSceneGallery } from "./RoomSceneGallery";
 import { trackAttrs } from "@/lib/home-tracking";
 import { optimizedUploadImage } from "@/lib/image-url";
+import { productCoverMedia } from "@/lib/product-cover";
 
 const str = (v: unknown): string => (typeof v === "string" ? v : "");
 
@@ -69,7 +70,7 @@ export function RoomInspirationSection({ section, previewDevice }: SectionProps)
               Shop this room
             </h3>
             {products.map((product, index) => {
-              const thumb = product.effectiveCoverMedia?.url;
+              const thumb = productCoverMedia(product)?.url;
               return (
                 <Link
                   key={product.id}

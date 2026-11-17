@@ -13,6 +13,7 @@ import { formatPrice } from "@/components/ui/PriceBox";
 import { cardPricePresentation } from "@/lib/product-card-presentation";
 import { createInitialSelection, resolveSelection } from "@/lib/product-selection";
 import { optimizedUploadImage } from "@/lib/image-url";
+import { productCoverMedia } from "@/lib/product-cover";
 import styles from "./AddToCartSuccess.module.css";
 
 /**
@@ -75,7 +76,7 @@ export function AddToCartSuccess({
                   createInitialSelection(product, product.defaultDisplayVariantId),
                 );
                 const price = cardPricePresentation(derived);
-                const image = product.effectiveCoverMedia;
+                const image = productCoverMedia(product);
                 const direct = sku !== null;
                 return (
                   <li key={product.id} className="flex items-center gap-3">
