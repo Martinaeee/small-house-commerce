@@ -435,6 +435,10 @@ export interface AdminOrderListRow extends AdminOrderRow {
   } | null;
   /** The payment method of the order (COD / online). */
   paymentMethod: string | null;
+  /** For an online order, the gateway channel it is paid through. */
+  paymentChannel: string | null;
+  /** The newest gateway attempt's state. */
+  paymentAttemptStatus: string | null;
   verification: AdminVerificationSummary;
 }
 
@@ -762,6 +766,22 @@ export interface AdminOrderDetail extends Omit<AdminOrderListRow, "items"> {
     amount: string;
     reference: string | null;
     paidAt: string | null;
+    createdAt: string;
+  }[];
+  /** The gateway attempts of an online payment, newest first. */
+  sunrateAttempts?: {
+    id: string;
+    channel: string;
+    env: string;
+    merchantOrderNum: string;
+    amount: string;
+    currency: string;
+    transId: string | null;
+    /** Masked snapshot only, when the channel returned it. */
+    cardBrand: string | null;
+    cardLast4: string | null;
+    status: string;
+    lastQueryAt: string | null;
     createdAt: string;
   }[];
   statusHistory: AdminStatusHistory[];
@@ -2229,6 +2249,23 @@ export const adminApi = {
     adminAuthedFetch<AdminOrderDetail>(
       `/api/v1/admin/orders/${encodeURIComponent(id)}`,
       { method: "PATCH", body: JSON.stringify(input) },
+    ),
+
+  /**
+   * Asks SUNRATE about a payment that is still open. The answer carries the
+   * refreshed order state; the list reloads from it.
+   */
+  queryOrderPayment: (
+    orderNumber: string,
+  ): Promise<{
+    orderNumber: string;
+    paymentStatus: string;
+    attemptStatus: string;
+    lastQueryAt: string | null;
+  }> =>
+    adminAuthedFetch(
+      `/api/v1/admin/payments/orders/${encodeURIComponent(orderNumber)}/query`,
+      { method: "POST" },
     ),
 
   addOrderNote: (id: string, content: string, noteType?: string): Promise<AdminOrderNote> =>

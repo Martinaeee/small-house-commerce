@@ -111,6 +111,9 @@ const ORDER_DETAIL_INCLUDE = {
   shippingAddress: true,
   attribution: true,
   payments: true,
+  // The gateway attempts with their masked snapshots (brand, last four):
+  // the card number itself never reaches this system.
+  sunrateAttempts: { orderBy: { createdAt: 'desc' as const } },
   statusHistory: { orderBy: { createdAt: 'asc' as const } },
   reservations: true,
   notes: { orderBy: { createdAt: 'desc' as const } },
@@ -2777,6 +2780,13 @@ export class OrdersService {
             orderBy: { createdAt: 'asc' },
             take: 1,
           },
+          // The newest gateway attempt: an online order's method is the
+          // channel the shopper actually paid with (Card / GCash / BPI).
+          sunrateAttempts: {
+            select: { channel: true, status: true },
+            orderBy: { createdAt: 'desc' },
+            take: 1,
+          },
           verificationAssignments: {
             where: { closedAt: null },
             select: {
@@ -2825,6 +2835,9 @@ export class OrdersService {
         }),
         // The payment method (COD / online) the table filters on.
         paymentMethod: rest.payments?.[0]?.method ?? null,
+        // For an online order the readable method is the gateway channel.
+        paymentChannel: rest.sunrateAttempts?.[0]?.channel ?? null,
+        paymentAttemptStatus: rest.sunrateAttempts?.[0]?.status ?? null,
         assignedTo: rest.assignedToId
           ? { id: rest.assignedToId, name: nameById.get(rest.assignedToId) ?? null }
           : null,

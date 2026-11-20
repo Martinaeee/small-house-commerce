@@ -14,6 +14,7 @@ import {
 import { useAdminI18n } from "@/lib/admin-i18n";
 import {
   MIN_COLUMN_WIDTH,
+  paymentMethodLabel,
   stickyLeftOffsets,
   type WorkbenchColumn,
   type WorkbenchColumnKey,
@@ -344,6 +345,18 @@ export function OrderTable({
                               </div>
                             ) : null}
                           </div>
+                        );
+                        break;
+                      case "payment":
+                        // The method only — the payment status has its own
+                        // place next to the order status.
+                        content = (
+                          <span
+                            data-testid="order-payment-method"
+                            className="truncate text-[12.5px] font-medium text-ink"
+                          >
+                            {paymentMethodLabel(row)}
+                          </span>
                         );
                         break;
                       case "adid":

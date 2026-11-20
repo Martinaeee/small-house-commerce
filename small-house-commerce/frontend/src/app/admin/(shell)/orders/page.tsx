@@ -36,6 +36,7 @@ import {
   DEFAULT_COLUMN_ORDER,
   DEFAULT_HIDDEN_COLUMNS,
   moveColumnKey,
+  paymentMethodLabel,
   visibleColumns,
   type WorkbenchColumnKey,
 } from "@/components/admin/orders/workbench/columns";
@@ -752,6 +753,7 @@ function OrdersPageContent() {
       t("orders_col_customer"),
       t("orders_col_phone"),
       t("orders_col_status"),
+      t("orders_col_payment"),
       t("orders_col_optimizer"),
       t("orders_filter_aid"),
       t("orders_col_adid"),
@@ -771,6 +773,7 @@ function OrdersPageContent() {
         row.shippingAddress?.fullName ?? row.customer.name ?? "",
         row.customer.normalizedPhone,
         row.orderStatus,
+        paymentMethodLabel(row),
         row.optimizerNameSnapshot ?? "",
         row.optimizerAidSnapshot ?? "",
         row.adid ?? "",
