@@ -118,6 +118,10 @@ export const checkoutSchema = z.object({
   // order to its draft; it never changes what was bought and is excluded from
   // the idempotency fingerprint.
   checkoutDraftToken: z.string().min(20).max(200).nullable().optional(),
+  // Payment choice at checkout (design 2026-11-20): COD stays the default so
+  // every existing client keeps its meaning. It IS part of the fingerprint
+  // when non-COD, so the same idempotency key can never switch payment paths.
+  paymentMethod: z.enum(['COD', 'CARD', 'GCASH', 'BPI']).default('COD'),
 });
 
 export const orderQuerySchema = z.object({
