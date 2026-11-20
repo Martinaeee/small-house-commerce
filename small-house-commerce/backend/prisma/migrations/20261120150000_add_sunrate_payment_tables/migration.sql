@@ -4,7 +4,7 @@
 CREATE TYPE "SunrateAttemptStatus" AS ENUM ('CREATING', 'PENDING', 'UNKNOWN', 'SUCCEEDED', 'FAILED', 'REVIEW');
 
 CREATE TABLE "payment_method_configs" (
-    "method" "PaymentMethod" NOT NULL,
+    "method" VARCHAR(16) NOT NULL,
     "enabled" BOOLEAN NOT NULL DEFAULT false,
     "revision" INTEGER NOT NULL DEFAULT 0,
     "updated_by" UUID,
@@ -70,5 +70,5 @@ ALTER TABLE "sunrate_payment_attempts" ADD CONSTRAINT "sunrate_payment_attempts_
 -- COD is the default payment path and starts enabled; online methods start
 -- disabled until the module and channels are switched on.
 INSERT INTO "payment_method_configs" ("method", "enabled", "revision", "updated_at")
-VALUES ('COD', true, 0, now()), ('SUNRATE', false, 0, now())
+VALUES ('COD', true, 0, now()), ('CARD', false, 0, now()), ('GCASH', false, 0, now()), ('BPI', false, 0, now())
 ON CONFLICT ("method") DO NOTHING;

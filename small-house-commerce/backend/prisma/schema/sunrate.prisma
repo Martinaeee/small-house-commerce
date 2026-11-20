@@ -24,8 +24,10 @@ enum SunrateAttemptStatus {
 
 // Backend switches per payment method: COD starts enabled, online methods
 // start disabled. Runtime visibility = DB switch AND gateway readiness.
+// `method` is a storefront channel key (COD/CARD/GCASH/BPI), not the
+// payments table enum — CARD/GCASH/BPI all ride the SUNRATE gateway.
 model PaymentMethodConfig {
-  method    PaymentMethod @id
+  method    String        @id @db.VarChar(16)
   enabled   Boolean       @default(false)
   revision  Int           @default(0)
   updatedBy String?       @map("updated_by") @db.Uuid
