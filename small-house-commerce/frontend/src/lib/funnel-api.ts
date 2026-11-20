@@ -21,6 +21,7 @@ export interface FunnelRow {
   views: number;
   addToCarts: number;
   checkouts: number;
+  timeouts: number;
   attempts: number;
   failures: number;
   orders: number;

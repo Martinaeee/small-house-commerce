@@ -180,6 +180,11 @@ describe.skipIf(!db)('funnel PostgreSQL facts and customer boundary', () => {
     await event('PAGE_VIEW', session + 'organic', {
       pagePath: '/products/' + tag,
     });
+    await event('CHECKOUT_ITEM_TIMEOUT', session + 'timeout', {
+      entityId: tag,
+      campaignLinkId: linkId,
+      metadata: { skuId, userAgent: 'Mozilla/5.0', networkType: '4g' },
+    });
     await event('CHECKOUT_SUBMIT_FAILED', session + 'other', {
       campaignLinkId: otherLinkId,
       metadata: {
@@ -213,6 +218,7 @@ describe.skipIf(!db)('funnel PostgreSQL facts and customer boundary', () => {
       views: 1,
       addToCarts: 1,
       checkouts: 1,
+      timeouts: 1,
       attempts: 1,
       failures: 2,
     });

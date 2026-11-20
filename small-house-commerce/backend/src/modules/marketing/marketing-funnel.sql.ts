@@ -40,6 +40,9 @@ export function funnelFacts(
           AND s.id::text IN (SELECT jsonb_array_elements_text(
             CASE WHEN jsonb_typeof(e.metadata->'skuIds')='array' THEN e.metadata->'skuIds'
               ELSE to_jsonb(string_to_array(coalesce(e.entity_id,''),',')) END))
+        UNION
+        SELECT p.id FROM products p WHERE e.event_name='CHECKOUT_ITEM_TIMEOUT'
+          AND p.slug=e.entity_id
       ) subject(product_id)
       WHERE subject.product_id IS NOT NULL
         ${q.productId ? Prisma.sql`AND subject.product_id=${q.productId}::uuid` : Prisma.empty}
@@ -68,6 +71,7 @@ export interface FunnelCounts {
   views: bigint;
   addToCarts: bigint;
   checkouts: bigint;
+  timeouts: bigint;
   attempts: bigint;
   failures: bigint;
   orders: bigint;
@@ -89,6 +93,7 @@ export function funnelCountsSql(
       SELECT product_id, session_id, day,
         bool_or(stage='PAGE_VIEW') AS visit, bool_or(stage='PRODUCT_VIEW') AS view,
         bool_or(stage='ADD_TO_CART') AS cart, bool_or(stage='BEGIN_CHECKOUT') AS checkout,
+        bool_or(stage='CHECKOUT_ITEM_TIMEOUT') AS timeout,
         bool_or(stage='CHECKOUT_SUBMIT_ATTEMPT') AS attempt, bool_or(stage='CHECKOUT_SUBMIT_FAILED') AS failure,
         bool_or(stage='ORDER') AS ordered
       FROM facts GROUP BY GROUPING SETS ((product_id,session_id),(product_id,session_id,day))
@@ -99,6 +104,7 @@ export function funnelCountsSql(
     SELECT s.product_id::text AS "productId", s.day::text AS day,
       count(*) FILTER(WHERE visit) AS visits, count(*) FILTER(WHERE view) AS views,
       count(*) FILTER(WHERE cart) AS "addToCarts", count(*) FILTER(WHERE checkout) AS checkouts,
+      count(*) FILTER(WHERE timeout) AS timeouts,
       count(*) FILTER(WHERE attempt) AS attempts, count(*) FILTER(WHERE failure) AS failures,
       coalesce(max(o.n),0) AS orders, count(*) FILTER(WHERE ordered) AS "orderingSessions",
       count(*) FILTER(WHERE visit AND view) AS "viewHits", count(*) FILTER(WHERE view AND cart) AS "cartHits",

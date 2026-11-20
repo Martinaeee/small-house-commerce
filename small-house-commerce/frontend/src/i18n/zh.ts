@@ -13,6 +13,7 @@ export const zh = {
   funnel_coverage: "提交尝试和失败只从埋点上线后记录；无记录不代表零失败。断网期间尚未送达的事件不可见。",
   funnel_rules: "统计说明：各步为区间内去重会话。步骤率使用相邻两步的会话交集；Buy Now 可跳过加购。订单按真实订单计数，转化率按有访问且下单的会话 / 访问会话计算。基线为区间前 7 天每日比率中位数；样本至少 20 才判异常。失败率 > max(10%, 基线×2) 标红，其余步骤 < 基线×50% 标红。",
   funnel_product: "商品", funnel_visits: "访问", funnel_views: "商品浏览", funnel_addToCarts: "加购", funnel_checkouts: "发起结账",
+  funnel_timeouts: "结账超时", funnel_timeouts_hint: "商品加载超过 10 秒仍未完成的会话数；下方为占发起结账会话的比例",
   funnel_attempts: "提交尝试", funnel_failures: "失败", funnel_orders: "订单数", funnel_conversion: "会话转化率",
   funnel_step_VIEW: "访问 → 浏览", funnel_step_ADD_TO_CART: "浏览 → 加购", funnel_step_CHECKOUT: "加购 → 结账",
   funnel_step_ATTEMPT: "结账 → 提交", funnel_step_FAILURE: "提交失败率", funnel_step_ORDER: "访问 → 下单",

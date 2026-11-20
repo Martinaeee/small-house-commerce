@@ -20,6 +20,7 @@ const columns = [
   "views",
   "addToCarts",
   "checkouts",
+  "timeouts",
   "attempts",
   "failures",
   "orders",
@@ -36,6 +37,7 @@ const rateKeys = {
   views: "VIEW",
   addToCarts: "ADD_TO_CART",
   checkouts: "CHECKOUT",
+  timeouts: null,
   attempts: "ATTEMPT",
   failures: "FAILURE",
   orders: "ORDER",
@@ -338,10 +340,21 @@ export function ProductFunnel({
                                     return `${t(`funnel_reason_${reason}`)}: ${count} (${funnelPercent(row.failures ? count / row.failures : 0)})`;
                                   })
                                   .join("\n")
-                              : undefined
+                              : c === "timeouts"
+                                ? t("funnel_timeouts_hint")
+                                : undefined
                           }
                         >
                           <span>{row[c]}</span>
+                          {c === "timeouts" && (
+                            <div className="whitespace-nowrap text-[11px] text-admin-muted">
+                              {funnelPercent(
+                                row.checkouts
+                                  ? row.timeouts / row.checkouts
+                                  : null,
+                              )}
+                            </div>
+                          )}
                           {step && (
                             <div className="whitespace-nowrap text-[11px] text-admin-muted">
                               {funnelPercent(step.rate)}{" "}
@@ -376,7 +389,7 @@ export function ProductFunnel({
                 {!data.rows.length && (
                   <tr>
                     <td
-                      colSpan={9}
+                      colSpan={10}
                       className="p-8 text-center text-admin-muted"
                     >
                       {t("funnel_empty")}

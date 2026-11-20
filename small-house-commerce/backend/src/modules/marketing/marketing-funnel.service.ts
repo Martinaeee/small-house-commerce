@@ -116,6 +116,7 @@ export class MarketingFunnelService {
         views: c.views,
         addToCarts: c.addToCarts,
         checkouts: c.checkouts,
+        timeouts: c.timeouts,
         attempts: c.attempts,
         failures: c.failures,
         orders: c.orders,

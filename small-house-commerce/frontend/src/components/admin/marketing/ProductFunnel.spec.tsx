@@ -28,6 +28,7 @@ const row: FunnelRow = {
   views: 33,
   addToCarts: 12,
   checkouts: 6,
+  timeouts: 1,
   attempts: 5,
   failures: 2,
   orders: 3,
@@ -71,6 +72,11 @@ describe("product funnel", () => {
       "CONVERSION",
     );
     expect(screen.getByTestId("funnel-failures-p1")).toHaveTextContent("2");
+    expect(screen.getByTestId("funnel-timeouts-p1")).toHaveTextContent("1");
+    expect(screen.getByTestId("funnel-timeouts-p1")).toHaveAttribute(
+      "title",
+      expect.stringContaining("10 秒"),
+    );
     expect(screen.getByTestId("funnel-failures-p1")).toHaveAttribute(
       "title",
       expect.stringContaining("库存 / 商品不可用: 2 (100.0%)"),
