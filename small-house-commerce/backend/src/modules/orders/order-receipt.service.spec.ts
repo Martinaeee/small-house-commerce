@@ -30,21 +30,26 @@ describe('OrderReceiptService', () => {
 
   it('rejects a tampered payload and a token from a different secret', () => {
     const service = new OrderReceiptService(config());
-    const token = service.issue('PH100030', new Date('2026-11-09T06:00:00Z'));
+    const issuedAt = new Date('2026-11-09T06:00:00Z');
+    const token = service.issue('PH100030', issuedAt);
+    if (token === null) throw new Error('expected a receipt token');
     const parts = token.split('.');
     const payload = JSON.parse(Buffer.from(parts[0], 'base64url').toString());
     payload.orderNumber = 'PH100031';
     const forgedBody = Buffer.from(JSON.stringify(payload)).toString('base64url');
 
-    expect(service.verify(`${forgedBody}.${parts[1]}`, 'PH100031')).toBe(false);
-    expect(new OrderReceiptService(config()).verify(token, 'PH100030')).toBe(true);
+    expect(service.verify(`${forgedBody}.${parts[1]}`, 'PH100031', issuedAt)).toBe(false);
+    // The reference time is passed explicitly: the token is only valid
+    // inside its 72-hour window, so verifying it against the wall clock
+    // would depend on the day the suite runs.
+    expect(new OrderReceiptService(config()).verify(token, 'PH100030', issuedAt)).toBe(true);
     const other = new OrderReceiptService(
       new ConfigService({
         jwt: { secret: 'another-secret' },
         orders: { receiptDenyNumbers: [] },
       }),
     );
-    expect(other.verify(token, 'PH100030')).toBe(false);
+    expect(other.verify(token, 'PH100030', issuedAt)).toBe(false);
   });
 
   it('never issues or accepts a receipt for a denied (test) order number', () => {
