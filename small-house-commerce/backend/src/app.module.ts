@@ -13,6 +13,7 @@ import { InventoryModule } from './modules/inventory/inventory.module.js';
 import { NotificationsModule } from './modules/notifications/notifications.module.js';
 import { OrdersModule } from './modules/orders/orders.module.js';
 import { PsgcModule } from './modules/psgc/psgc.module.js';
+import { PaymentsModule } from './modules/payments/payments.module.js';
 import { SearchModule } from './modules/search/search.module.js';
 import { UploadsModule } from './modules/uploads/uploads.module.js';
 import { SettingsModule } from './modules/settings/settings.module.js';
@@ -49,6 +50,7 @@ import { UsersModule } from './modules/users/users.module.js';
     CheckoutDraftsModule,
     InventoryModule,
     OrdersModule,
+    PaymentsModule,
     PsgcModule,
     SearchModule,
     NotificationsModule,
