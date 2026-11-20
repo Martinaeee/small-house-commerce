@@ -15,6 +15,7 @@ function orderWith(mapping: string | null) {
     createdAt: new Date('2026-10-28T02:30:00Z'), customer: { name: 'Maria', email: null }, shippingAddress: null,
     items: [{ id: 'line-1', skuCodeSnapshot: 'TB001-Wa', quantity: 1, unitPrice: '100.00', unitDiscount: '0.00',
       lineTotal: '100.00', sku: { skuCode: 'TB001-Wa', qianyiSkuCode: mapping } }],
+    payments: [],
   };
 }
 

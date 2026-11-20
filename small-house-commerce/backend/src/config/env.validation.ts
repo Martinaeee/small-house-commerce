@@ -174,6 +174,12 @@ export const envSchema = z.object({
     z.string().uuid('QIANYI_LOCAL_WAREHOUSE_ID must be a uuid').optional(),
   ),
   QIANYI_LOGISTICS: z.preprocess(blankAsUndefined, z.string().min(1).max(100).optional()),
+  // Whether Qianyi's prepaid payment enum for online (SUNRATE) orders has
+  // been confirmed with Qianyi. Off until it has.
+  QIANYI_PREPAID_VERIFIED: z.preprocess(
+    blankAsUndefined,
+    z.enum(['true', 'false', '1']).optional(),
+  ),
   // SUNRATE acquiring integration (design 2026-11-20). The base URL is only
   // ever one of the two official hosts; sunrate.config.ts binds it to the env.
   SUNRATE_ENABLED: z.preprocess(blankAsUndefined, z.enum(['true', 'false', '1']).optional()),

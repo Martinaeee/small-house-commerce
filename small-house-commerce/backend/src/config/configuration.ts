@@ -100,6 +100,9 @@ export function configuration() {
       warehouse: env.QIANYI_WAREHOUSE ?? '',
       localWarehouseId: env.QIANYI_LOCAL_WAREHOUSE_ID ?? null,
       logistics: env.QIANYI_LOGISTICS ?? '',
+      // Whether Qianyi's prepaid enum for online orders is confirmed. Until
+      // it is, an online order is never pushed to Qianyi.
+      prepaidVerified: env.QIANYI_PREPAID_VERIFIED ?? 'false',
     },
     // SUNRATE acquiring integration (design 2026-11-20). The gateway host is
     // bound to the environment in sunrate.config.ts, never taken from env
