@@ -2,12 +2,14 @@ import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { SunrateClient } from './sunrate.client.js';
 import { readSunrateConfig } from './sunrate.config.js';
+import { ApplyVerifiedResultService } from './apply-verified-result.service.js';
 import { PaymentMethodsService } from './payment-methods.service.js';
 import { PaymentCapabilityService } from './payment-capability.service.js';
 import { PaymentsService } from './payments.service.js';
 import { PaymentsAdminSettingsController } from './admin/payments-admin.controller.js';
 import { PaymentStatusController } from './storefront/payment-status.controller.js';
 import { StorefrontPaymentsMethodsController } from './storefront/payments-methods.controller.js';
+import { SunrateNotifyController } from './sunrate/notify.controller.js';
 
 /**
  * SUNRATE online payments module (design 2026-11-20). The orders module
@@ -19,11 +21,13 @@ import { StorefrontPaymentsMethodsController } from './storefront/payments-metho
     PaymentsAdminSettingsController,
     PaymentStatusController,
     StorefrontPaymentsMethodsController,
+    SunrateNotifyController,
   ],
   providers: [
     PaymentMethodsService,
     PaymentCapabilityService,
     PaymentsService,
+    ApplyVerifiedResultService,
     {
       provide: SunrateClient,
       inject: [ConfigService],
