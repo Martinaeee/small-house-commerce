@@ -117,6 +117,32 @@ describe('ApplyVerifiedResultService', () => {
     expect(tx.sunratePaymentAttempt.update).not.toHaveBeenCalled();
   });
 
+  it('treats a late failure without an amount on a paid order as a late failure, not a review', async () => {
+    const { service, tx } = harness({
+      attempt: { status: 'SUCCEEDED', transId: 'trans-1' },
+      order: { paymentStatus: 'PAID' },
+    });
+
+    // Failure notifications do not always carry the amount; that must not
+    // turn a paid attempt into a REVIEW row.
+    const outcome = await service.applyVerifiedResult({ ...RESULT, respCode: '01', amount: '' });
+
+    expect(outcome).toBe('IGNORED_LATE_FAILURE');
+    expect(tx.sunratePaymentAttempt.update).not.toHaveBeenCalled();
+  });
+
+  it('treats a duplicate success without an amount as a duplicate, not a review', async () => {
+    const { service, tx } = harness({
+      attempt: { status: 'SUCCEEDED', transId: 'trans-1' },
+      order: { paymentStatus: 'PAID' },
+    });
+
+    const outcome = await service.applyVerifiedResult({ ...RESULT, amount: '' });
+
+    expect(outcome).toBe('DUPLICATE');
+    expect(tx.sunratePaymentAttempt.update).not.toHaveBeenCalled();
+  });
+
   it('records a late success on a cancelled order as review, not paid', async () => {
     const { service, tx } = harness({ order: { orderStatus: 'CANCELLED' } });
 

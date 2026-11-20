@@ -137,6 +137,33 @@ describe("PaymentReturnClient", () => {
     );
   });
 
+  it("keeps checking after a failed payment is retried with a card session", async () => {
+    apiMock.getPaymentStatus.mockResolvedValue({
+      ...STATUS,
+      paymentStatus: "FAILED",
+    });
+    apiMock.retryPayment.mockResolvedValue({
+      orderNumber: "PH100030",
+      payment: {
+        attemptId: "attempt-2",
+        channel: "card",
+        env: "production",
+        paySession: "ps_new",
+      },
+    });
+    render(<PaymentReturnClient orderNumber="PH100030" />);
+
+    const retry = await screen.findByTestId("payment-retry");
+    const before = apiMock.getPaymentStatus.mock.calls.length;
+    await userEvent.setup().click(retry);
+
+    // The retry opened a new attempt: the page must ask the server again
+    // instead of waiting on a poll loop that already stopped.
+    await waitFor(() =>
+      expect(apiMock.getPaymentStatus.mock.calls.length).toBeGreaterThan(before),
+    );
+  });
+
   it("mounts the card form with the session and the environment the server named", async () => {
     storePaymentSession({
       paySession: "ps_secret",

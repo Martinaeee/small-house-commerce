@@ -38,6 +38,9 @@ export function PaymentReturnClient({ orderNumber }: { orderNumber: string }) {
   const [error, setError] = useState<string | null>(null);
   const [retrying, setRetrying] = useState(false);
   const [paySession, setPaySession] = useState<string | null>(null);
+  // Bumped when a retry opens a new attempt: the poll loop that stopped at
+  // FAILED has to start asking again.
+  const [pollEpoch, setPollEpoch] = useState(0);
   const firedRef = useRef(false);
   const { cart, removeItems } = useCart();
 
@@ -94,7 +97,7 @@ export function PaymentReturnClient({ orderNumber }: { orderNumber: string }) {
       alive = false;
       if (timer !== null) window.clearTimeout(timer);
     };
-  }, [orderNumber]);
+  }, [orderNumber, pollEpoch]);
 
   // The card session travels from the checkout in memory only. A reload
   // loses it, and the page then waits for the status instead of mounting a
@@ -150,6 +153,9 @@ export function PaymentReturnClient({ orderNumber }: { orderNumber: string }) {
         setPaySession(result.payment.paySession);
         setView("PENDING");
       }
+      // A new attempt is open: restart the status poll so this page notices
+      // the payment without a manual reload.
+      setPollEpoch((value) => value + 1);
     } catch (thrown) {
       const status_ = (thrown as { status?: number }).status;
       if (status_ === 409) {

@@ -215,14 +215,17 @@ export class ApplyVerifiedResultService {
       });
       if (!order) return { outcome: 'REVIEW' };
 
-      const mismatch = this.mismatch(attempt, input);
-      if (mismatch) return { outcome: await this.markReview(tx, attempt, mismatch) };
-
-      // A paid payment is never downgraded: a late failure says nothing
-      // about money that already arrived.
+      // A paid payment is never downgraded and never re-judged: a late
+      // failure says nothing about money that already arrived, and a repeat
+      // delivery is a no-op — even when it arrives without an amount, as
+      // failure notifications often do. Checking this BEFORE the field
+      // comparison keeps a paid attempt out of REVIEW.
       if (attempt.status === 'SUCCEEDED' || order.paymentStatus === 'PAID') {
         return { outcome: input.respCode === '00' ? 'DUPLICATE' : 'IGNORED_LATE_FAILURE' };
       }
+
+      const mismatch = this.mismatch(attempt, input);
+      if (mismatch) return { outcome: await this.markReview(tx, attempt, mismatch) };
 
       // A cancelled order is not paid by a notification; it goes to a human.
       if (order.orderStatus === 'CANCELLED') {
