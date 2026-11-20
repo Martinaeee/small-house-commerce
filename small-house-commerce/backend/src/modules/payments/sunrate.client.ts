@@ -4,6 +4,7 @@ import {
   type SunrateConfig,
 } from './sunrate.config.js';
 import { signFields } from './sunrate.signature.js';
+import { manilaTransTime } from './sunrate.merchant-order-num.js';
 
 /**
  * Client for the SUNRATE v5 Online Payment APIs
@@ -57,14 +58,14 @@ export interface QueryResult {
 
 const REQUEST_TIMEOUT_MS = 15_000;
 
-const nowTransTime = (): string => {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Manila',
-    year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
-  }).formatToParts(new Date());
-  const pick = (type: string) => parts.find((p) => p.type === type)?.value ?? '00';
-  return `${pick('year')}${pick('month')}${pick('day')}${pick('hour')}${pick('minute')}${pick('second')}`;
+/**
+ * The gateway answers with free-form JSON. Only a non-empty string field is
+ * usable, so anything else counts as "the gateway did not return it".
+ */
+const stringField = (payload: unknown, key: string): string | undefined => {
+  if (typeof payload !== 'object' || payload === null) return undefined;
+  const value = (payload as Record<string, unknown>)[key];
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
 };
 
 export class SunrateClient {
@@ -92,7 +93,7 @@ export class SunrateClient {
       userID: input.userID,
     });
     const result = await this.post('/api/v5/createcashier', body);
-    const paySession = result.parameter?.['paySession'];
+    const paySession = stringField(result.parameter, 'paySession');
     if (!paySession) throw new SunrateGatewayError('EMPTY', 'createcashier returned no paySession');
     return { paySession };
   }
@@ -109,7 +110,7 @@ export class SunrateClient {
       goodsInfo: 'LUWAG order',
     });
     const result = await this.post('/api/v5/createorder', body);
-    const payUrl = result.parameter?.['payUrl'];
+    const payUrl = stringField(result.parameter, 'payUrl');
     if (!payUrl) throw new SunrateGatewayError('EMPTY', 'createorder returned no payUrl');
     return { payUrl };
   }
@@ -135,7 +136,7 @@ export class SunrateClient {
   private signedRequest(fields: Record<string, string>): Record<string, string> {
     const base: Record<string, string> = {
       merID: this.config.merchantId,
-      transTime: nowTransTime(),
+      transTime: manilaTransTime(),
       merReserve: '',
       signType: 'SHA256',
       ...fields,

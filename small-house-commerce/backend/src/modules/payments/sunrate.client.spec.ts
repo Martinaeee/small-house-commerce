@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { SunrateClient } from './sunrate.client.js';
 import { signFields } from './sunrate.signature.js';
 import type { SunrateConfig } from './sunrate.config.js';
