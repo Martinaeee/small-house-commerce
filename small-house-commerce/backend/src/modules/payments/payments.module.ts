@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { AuthModule } from '../auth/auth.module.js';
 import { MetaCapiModule } from '../meta-capi/meta-capi.module.js';
 import { SunrateClient } from './sunrate.client.js';
 import { readSunrateConfig } from './sunrate.config.js';
@@ -20,7 +21,8 @@ import { SunrateNotifyController } from './sunrate/notify.controller.js';
  * the gateway session.
  */
 @Module({
-  imports: [MetaCapiModule],
+  // AuthModule provides the JwtModule the admin guards inject.
+  imports: [AuthModule, MetaCapiModule],
   controllers: [
     PaymentsAdminSettingsController,
     PaymentsQueryController,

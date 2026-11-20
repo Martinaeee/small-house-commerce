@@ -83,7 +83,7 @@ describe('OrdersService.list payment facts', () => {
   });
 
   it('asks for the newest attempt and the first payment row', async () => {
-    const findMany = vi.fn(async () => [item()]);
+    const findMany = vi.fn(async (_args: { include: Record<string, any> }) => [item()]);
     const prisma = {
       order: { findMany, count: vi.fn(async () => 1) },
       user: { findMany: vi.fn(async () => []) },
@@ -100,7 +100,7 @@ describe('OrdersService.list payment facts', () => {
 
     await service.list(orderQuerySchema.parse({}));
 
-    const include = (findMany.mock.calls[0]![0] as { include: Record<string, any> }).include;
+    const include = findMany.mock.calls[0]![0].include;
     expect(include.payments).toMatchObject({ take: 1, orderBy: { createdAt: 'asc' } });
     expect(include.sunrateAttempts).toMatchObject({ take: 1, orderBy: { createdAt: 'desc' } });
   });
