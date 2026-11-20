@@ -1378,6 +1378,24 @@ export interface NewsletterPromotionUsage {
   availability: "LIVE" | "SCHEDULED" | "EXPIRED" | "EXHAUSTED" | "ARCHIVED";
 }
 
+export type AdminPaymentMethodId = "COD" | "CARD" | "GCASH" | "BPI";
+
+/** One method's switch, as the admin settings page shows it. */
+export interface AdminPaymentMethodState {
+  id: AdminPaymentMethodId;
+  enabled: boolean;
+  /** Whether the method COULD be switched on (gateway configured). */
+  ready: boolean;
+  updatedAt: string | null;
+  updatedBy: string | null;
+}
+
+export interface AdminPaymentMethodsSettings {
+  codEnabled: boolean;
+  revision: number;
+  methods: AdminPaymentMethodState[];
+}
+
 export interface AdminSiteSettings {
   id: string;
   messengerUrl: string;
@@ -2965,6 +2983,22 @@ export const adminApi = {
       method: "PATCH",
       body: JSON.stringify(input),
     }),
+
+  // --- payment methods (per-method switches) --------------------------------
+
+  getPaymentMethodSettings: (): Promise<AdminPaymentMethodsSettings> =>
+    adminAuthedFetch<AdminPaymentMethodsSettings>(
+      "/api/v1/admin/settings/payment-methods",
+    ),
+
+  updatePaymentMethodSettings: (input: {
+    methods: { id: AdminPaymentMethodId; enabled: boolean }[];
+    revision: number;
+  }): Promise<AdminPaymentMethodsSettings> =>
+    adminAuthedFetch<AdminPaymentMethodsSettings>(
+      "/api/v1/admin/settings/payment-methods",
+      { method: "PATCH", body: JSON.stringify(input) },
+    ),
 
   presignUpload: (
     contentType: string,
