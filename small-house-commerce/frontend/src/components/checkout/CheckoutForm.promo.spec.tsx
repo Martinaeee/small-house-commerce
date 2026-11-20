@@ -421,7 +421,7 @@ describe("CheckoutForm mobile summary order", () => {
     expect(
       postal.compareDocumentPosition(landmark) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
-    expect(street).toHaveClass("h-10", "text-sm", "placeholder:text-sm");
+    expect(street).toHaveClass("h-10", "text-base", "placeholder:text-base");
   });
 
   it("opens the address dialog when PLACE ORDER fails validation", async () => {
@@ -431,5 +431,30 @@ describe("CheckoutForm mobile summary order", () => {
     expect(screen.getByRole("dialog")).toBeInTheDocument();
     expect(screen.getByTestId("checkout-address-submit")).toBeInTheDocument();
     expect(routerMock.push).not.toHaveBeenCalled();
+  });
+});
+
+describe("CheckoutForm Buy Now item load failure", () => {
+  it("offers an explicit retry instead of a dead end", async () => {
+    const retry = vi.fn();
+    checkoutLinesMock.mockReturnValue({
+      isBuyNow: true,
+      cartLoading: false,
+      product: null,
+      productError: true,
+      cartBlocked: false,
+      buyNowMatchedSku: false,
+      ready: false,
+      lines: [],
+      orderItems: [],
+      totals: { compareAtTotal: 0, subtotal: 0, savings: 0, discount: 0, total: 0 },
+      total: null,
+      retry,
+    });
+    render(<CheckoutForm skuId="sku-1" slug="pegboard" />);
+
+    expect(await screen.findByText(/couldn't load this item/i)).toBeInTheDocument();
+    await userEvent.setup().click(screen.getByRole("button", { name: "Try again" }));
+    expect(retry).toHaveBeenCalledTimes(1);
   });
 });

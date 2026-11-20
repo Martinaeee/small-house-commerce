@@ -26,6 +26,8 @@ export interface CheckoutLines {
   cartItemIds: string[];
   totals: CheckoutTotals;
   total: number | null;
+  /** Re-run the item load after a failure, from the error page's button. */
+  retry: () => void;
 }
 
 export function useCheckoutLines({
@@ -39,6 +41,7 @@ export function useCheckoutLines({
   const { cart, loading: cartLoading } = useCart();
   const [product, setProduct] = useState<Product | null>(null);
   const [productError, setProductError] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
 
   const buyNowQty = clampQty(qty);
   const normalizedDirectItems = useMemo(
@@ -56,11 +59,13 @@ export function useCheckoutLines({
 
   // Direct checkout (single Buy Now or PDP inline items): resolve the
   // canonical names, variants, options and prices from the product endpoint.
+  // Bounded so a stalled request cannot leave the page on "Loading item…"
+  // forever; the error page offers an explicit retry.
   useEffect(() => {
     if (!isBuyNow || !productSlug) return;
     let cancelled = false;
     api
-      .getProductBySlug(productSlug)
+      .getProductBySlug(productSlug, { timeoutMs: 10_000 })
       .then((p) => {
         if (!cancelled) setProduct(p);
       })
@@ -70,7 +75,7 @@ export function useCheckoutLines({
     return () => {
       cancelled = true;
     };
-  }, [isBuyNow, productSlug]);
+  }, [isBuyNow, productSlug, reloadKey]);
 
   const selectedItems: CartItem[] = useMemo(() => {
     if (isBuyNow || !cart) return [];
@@ -199,5 +204,10 @@ export function useCheckoutLines({
     cartItemIds,
     totals,
     total,
+    retry: () => {
+      setProductError(false);
+      setProduct(null);
+      setReloadKey((key) => key + 1);
+    },
   };
 }

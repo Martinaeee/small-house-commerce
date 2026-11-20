@@ -146,6 +146,7 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
     orderItems,
     totals,
     total,
+    retry,
   } = useCheckoutLines({ skuId, qty, itemsParam, slug });
 
   const summaryUnits = lines.reduce((count, line) => count + line.quantity, 0);
@@ -520,10 +521,19 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
           product page or continue shopping.
         </p>
         <div className="flex flex-col items-center justify-center gap-3 sm:flex-row">
+          {productError ? (
+            <button
+              type="button"
+              onClick={retry}
+              className="inline-flex h-12 items-center justify-center rounded-lg bg-cta px-6 text-base font-semibold text-cta-foreground hover:bg-cta-hover"
+            >
+              Try again
+            </button>
+          ) : null}
           {slug && (
             <Link
               href={`/products/${slug}`}
-              className="inline-flex h-12 items-center justify-center rounded-lg bg-cta px-6 text-base font-semibold text-cta-foreground hover:bg-cta-hover"
+              className="inline-flex h-12 items-center justify-center rounded-lg border border-border px-6 text-base font-semibold text-ink hover:border-cta"
             >
               Back to product
             </Link>

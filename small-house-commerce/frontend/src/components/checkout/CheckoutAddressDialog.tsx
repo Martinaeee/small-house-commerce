@@ -53,6 +53,8 @@ function RegionPicker({
   const [query, setQuery] = useState("");
   const [barangays, setBarangays] = useState<{ name: string }[]>([]);
   const [loadingBarangays, setLoadingBarangays] = useState(false);
+  const [barangayError, setBarangayError] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
 
   const provinces = useMemo(() => listProvinces(), []);
   const cities = useMemo(
@@ -64,12 +66,16 @@ function RegionPicker({
     if (tab !== "barangay" || !values.province || !values.city) return;
     let alive = true;
     setLoadingBarangays(true);
+    setBarangayError(false);
     void fetchBarangays(values.province, values.city)
       .then((list) => {
         if (alive) setBarangays(list);
       })
       .catch(() => {
-        if (alive) setBarangays([]);
+        if (alive) {
+          setBarangays([]);
+          setBarangayError(true);
+        }
       })
       .finally(() => {
         if (alive) setLoadingBarangays(false);
@@ -77,7 +83,7 @@ function RegionPicker({
     return () => {
       alive = false;
     };
-  }, [tab, values.province, values.city]);
+  }, [tab, values.province, values.city, reloadKey]);
 
   const options: { value: string; hint?: string }[] = tab === "province"
     ? provinces.map((name) => ({ value: name }))
@@ -148,12 +154,26 @@ function RegionPicker({
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               placeholder={`Search ${TAB_LABELS[tab].toLowerCase()}`}
-              className="h-10 w-full rounded-md border border-border bg-card px-3 text-sm text-ink placeholder:text-ink-muted focus:border-cta focus:outline-none"
+              className="h-10 w-full rounded-md border border-border bg-card px-3 text-base text-ink placeholder:text-ink-muted focus:border-cta focus:outline-none"
             />
           </div>
           <ul className="max-h-52 overflow-y-auto" role="listbox">
             {tab === "barangay" && loadingBarangays ? (
               <li className="px-4 py-3 text-sm text-ink-muted">Loading barangays…</li>
+            ) : tab === "barangay" && barangayError ? (
+              <li
+                role="alert"
+                className="flex items-center justify-between gap-3 px-4 py-3 text-sm text-ink-muted"
+              >
+                <span>Could not load barangays.</span>
+                <button
+                  type="button"
+                  onClick={() => setReloadKey((key) => key + 1)}
+                  className="shrink-0 font-medium text-cta hover:underline"
+                >
+                  Retry
+                </button>
+              </li>
             ) : filtered.length === 0 ? (
               <li className="px-4 py-3 text-sm text-ink-muted">No match — adjust the search.</li>
             ) : (
@@ -421,7 +441,7 @@ export function CheckoutAddressDialog({
                 }}
                 aria-invalid={Boolean(errors.streetAddress)}
                 placeholder="Street Name, Building, House No."
-                className={`h-10 w-full rounded-md border px-3 text-sm text-ink placeholder:text-sm placeholder:text-ink-muted focus:border-cta focus:outline-none ${
+                className={`h-10 w-full rounded-md border px-3 text-base text-ink placeholder:text-base placeholder:text-ink-muted focus:border-cta focus:outline-none ${
                   errors.streetAddress ? "border-sale" : "border-border"
                 }`}
               />
@@ -474,9 +494,9 @@ export function CheckoutAddressDialog({
                     onChange={(event) => {
                       if (event.target.value) onChange("postalCode", event.target.value);
                     }}
-                    className="h-10 w-[46%] shrink-0 rounded-md border border-border bg-card px-2 text-[13px] text-ink focus:border-cta focus:outline-none"
+                    className="h-10 w-[46%] shrink-0 rounded-md border border-border bg-card px-2 text-base text-ink focus:border-cta focus:outline-none"
                   >
-                    <option value="">Pick a suggested ZIP</option>
+                    <option value="">Suggested ZIP</option>
                     {postalOptions.map((option) => (
                       <option key={option.zip} value={option.zip}>
                         {`${option.label} — ${option.zip}`}
@@ -500,7 +520,7 @@ export function CheckoutAddressDialog({
                   value={values.landmark}
                   onChange={field("landmark")}
                   placeholder="Nearby building or landmark"
-                  className="h-10 w-full rounded-md border border-border px-3 text-sm text-ink placeholder:text-ink-muted focus:border-cta focus:outline-none"
+                  className="h-10 w-full rounded-md border border-border px-3 text-base text-ink placeholder:text-ink-muted focus:border-cta focus:outline-none"
                 />
               </label>
               <button

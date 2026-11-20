@@ -836,7 +836,8 @@ export const api = {
     if (params?.pageSize) q.set("pageSize", String(params.pageSize));
     return request<Paged<Product>>(`/api/v1/storefront/products?${q.toString()}`);
   },
-  getProductBySlug: (slug: string) => request<Product>(`/api/v1/storefront/products/${slug}`),
+  getProductBySlug: (slug: string, options?: { timeoutMs?: number }) =>
+    request<Product>(`/api/v1/storefront/products/${slug}`, options),
   markReviewHelpful: (reviewId: string) =>
     request<{ helpfulCount: number; voted: boolean }>(
       `/api/v1/storefront/reviews/${reviewId}/helpful`,
