@@ -334,9 +334,15 @@ export type LogisticsEventInput = z.infer<typeof logisticsEventSchema>;
  * Manual order entry can name the checkout draft it completes. The field is
  * deliberately absent from the storefront schema: only an operator who has
  * already spoken to the customer may consume that draft.
+ *
+ * The payment method is COD only: an operator takes the money on delivery,
+ * so this entry point cannot start a payment session. Posting an online
+ * method is rejected outright rather than quietly downgraded — a silent
+ * downgrade would leave an order waiting for a session nobody will start.
  */
 export const adminCheckoutSchema = checkoutSchema.extend({
   checkoutDraftId: z.string().uuid().optional(),
+  paymentMethod: z.literal('COD').default('COD'),
 });
 export type AdminCheckoutInput = z.infer<typeof adminCheckoutSchema>;
 

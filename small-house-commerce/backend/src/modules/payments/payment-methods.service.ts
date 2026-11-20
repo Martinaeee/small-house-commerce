@@ -1,7 +1,7 @@
 import { ConflictException, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service.js';
-import { readSunrateConfig } from './sunrate.config.js';
+import { readSunrateConfig, type SunrateConfig } from './sunrate.config.js';
 import { PAYMENT_METHOD_IDS, type PaymentMethodId } from './dto/payment-methods.dto.js';
 
 export interface EffectiveMethod {
@@ -41,6 +41,16 @@ export class PaymentMethodsService {
 
   private gatewayReady(): boolean {
     return readSunrateConfig(this.config)?.enabled === true;
+  }
+
+  /**
+   * The resolved gateway configuration, or null when SUNRATE is not
+   * configured at all. Callers use it to stamp a payment attempt with the
+   * environment and merchant it belongs to; an attempt never crosses
+   * environments.
+   */
+  gatewayConfig(): SunrateConfig | null {
+    return readSunrateConfig(this.config);
   }
 
   private project(rows: Map<string, { enabled: boolean; revision: number; updatedAt: Date; updatedBy: string | null }>): EffectiveMethods {
