@@ -295,6 +295,12 @@ function guestThumbnail(item: {
 }
 
 /**
+ * Payment attempt states that still own the order: the money may be moving,
+ * or has moved. A failed attempt owns nothing.
+ */
+const ONLINE_ATTEMPT_BLOCKING = ['CREATING', 'PENDING', 'UNKNOWN', 'REVIEW', 'SUCCEEDED'] as const;
+
+/**
  * Redacted per-request checkout timings. The caller keeps the object, fills it
  * during the call and logs the numbers; no customer data ever enters it.
  */
@@ -310,8 +316,7 @@ export type CheckoutTrace = {
  * attempt it created — the handle the gateway session is started from —
  * while a COD checkout has nothing to pay and never grows that key.
  */
-export interface CheckoutResult {
-  orderNumber: string;
+export interface CheckoutResult {  orderNumber: string;
   orderStatus: OrderStatus;
   confirmationStatus: ConfirmationStatus;
   riskType: string | null;
@@ -393,6 +398,22 @@ export class OrdersService {
     const gateway = this.paymentMethods.gatewayConfig();
     if (!gateway) throw new ConflictException('PAYMENT_METHOD_DISABLED');
     return { channel: paymentMethod.toLowerCase(), gateway };
+  }
+
+  /**
+   * An order with an open or paid online payment must not be cancelled or
+   * deleted: the money may still be moving, or has already moved. A failed
+   * payment owns nothing and is handled like any other order.
+   */
+  private async assertOnlinePaymentSettled(
+    tx: Prisma.TransactionClient,
+    orderId: string,
+  ): Promise<void> {
+    const attempt = await tx.sunratePaymentAttempt.findFirst({
+      where: { orderId, status: { in: [...ONLINE_ATTEMPT_BLOCKING] } },
+    });
+    if (!attempt) return;
+    throw new ConflictException('ONLINE_PAYMENT_ACTIVE_CONFIRM_VIA_QUERY');
   }
 
   /**
@@ -1330,6 +1351,10 @@ export class OrdersService {
       });
       if (!order) throw new NotFoundException('Order not found');
 
+      // Before anything is closed or removed: an order that is paid (or
+      // being paid) online keeps its money question open.
+      await this.assertOnlinePaymentSettled(tx, orderId);
+
       const qianyiAction = this.qianyi
         ? await this.qianyi.closeForDeleteWithin(tx, orderId, operatorId)
         : 'none';
@@ -1564,6 +1589,9 @@ export class OrdersService {
         if (order.orderStatus === 'SHIPPING') {
           throw new BadRequestException('Shipped orders cannot be cancelled');
         }
+        // An order that is paid (or being paid) online is not cancelled from
+        // here: the money question comes first.
+        await this.assertOnlinePaymentSettled(tx, orderId);
 
         const updated = await tx.order.update({
           where: { id: orderId },
@@ -2318,14 +2346,24 @@ export class OrdersService {
     }
     const primary = await tx.order.findUnique({
       where: { id: input.primaryOrderId },
-      include: { shippingAddress: true, items: true },
+      include: { shippingAddress: true, items: true, payments: { select: { method: true, status: true } } },
     });
     const merged = await tx.order.findUnique({
       where: { id: input.mergedOrderId },
-      include: { shippingAddress: true, items: true },
+      include: { shippingAddress: true, items: true, payments: { select: { method: true, status: true } } },
     });
     if (!primary || !merged) throw new NotFoundException('Order not found');
     if (primary.id === merged.id) throw new BadRequestException('Cannot merge an order with itself');
+
+    // An order that carries an online payment is not merged: its money
+    // belongs to that order alone, and the payment records would end up on
+    // the wrong side of the merge.
+    const onlinePayments = [...primary.payments, ...merged.payments].filter(
+      (payment) => payment.method === 'SUNRATE' && payment.status !== 'FAILED',
+    );
+    if (onlinePayments.length > 0) {
+      throw new ConflictException('ONLINE_PAYMENT_ORDER_NOT_MERGEABLE');
+    }
 
     const mergeable = new Set(['NEW', 'PENDING', 'CONFIRMED']);
     if (!mergeable.has(primary.orderStatus) || !mergeable.has(merged.orderStatus)) {

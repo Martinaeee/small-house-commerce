@@ -980,6 +980,7 @@ function orderDetail(overrides: Record<string, unknown> = {}) {
     assignedBy: null,
     items: [],
     shippingAddress: null,
+    payments: [],
     riskFlags: [],
     shipments: [],
     reservations: [],
