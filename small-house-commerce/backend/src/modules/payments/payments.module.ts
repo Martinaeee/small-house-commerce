@@ -8,7 +8,9 @@ import { PaymentMethodsService } from './payment-methods.service.js';
 import { PaymentCapabilityService } from './payment-capability.service.js';
 import { PaymentsService } from './payments.service.js';
 import { PaymentsAdminSettingsController } from './admin/payments-admin.controller.js';
+import { PaymentsQueryController } from './admin/payments-query.controller.js';
 import { PaymentStatusController } from './storefront/payment-status.controller.js';
+import { StorefrontPaymentsController } from './storefront/payments.controller.js';
 import { StorefrontPaymentsMethodsController } from './storefront/payments-methods.controller.js';
 import { SunrateNotifyController } from './sunrate/notify.controller.js';
 
@@ -21,7 +23,9 @@ import { SunrateNotifyController } from './sunrate/notify.controller.js';
   imports: [MetaCapiModule],
   controllers: [
     PaymentsAdminSettingsController,
+    PaymentsQueryController,
     PaymentStatusController,
+    StorefrontPaymentsController,
     StorefrontPaymentsMethodsController,
     SunrateNotifyController,
   ],

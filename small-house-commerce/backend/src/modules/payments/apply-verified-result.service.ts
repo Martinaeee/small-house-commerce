@@ -1,7 +1,15 @@
-import { Injectable, Logger, Optional } from '@nestjs/common';
+import {
+  ConflictException,
+  HttpException,
+  Injectable,
+  Logger,
+  NotFoundException,
+  Optional,
+} from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { Prisma } from '../../generated/prisma/client.js';
 import { MetaCapiService, type PurchaseEnqueueInput } from '../meta-capi/meta-capi.service.js';
+import { SunrateClient } from './sunrate.client.js';
 
 /**
  * A verified gateway result, either from the notification or from a query.
@@ -33,6 +41,17 @@ interface ApplyResult {
   outcome: VerifiedOutcome;
   purchase?: PurchaseEnqueueInput;
 }
+
+/** What an operator sees after a query. */
+export interface ReconcileResult {
+  orderNumber: string;
+  paymentStatus: string;
+  attemptStatus: string;
+  lastQueryAt: Date | null;
+}
+
+/** One query per attempt per this many milliseconds. */
+const QUERY_THROTTLE_MS = 10_000;
 
 /**
  * The brands each channel may be paid with (docs.acq.sunrate.com/v5
@@ -83,12 +102,97 @@ export const parseGatewayTime = (value: string): Date | null => {
 @Injectable()
 export class ApplyVerifiedResultService {
   private readonly logger = new Logger(ApplyVerifiedResultService.name);
+  private readonly lastQuery = new Map<string, number>();
 
   constructor(
     private readonly prisma: PrismaService,
     // Optional so a direct unit construction keeps working; Nest injects it.
     @Optional() private readonly metaCapi?: MetaCapiService,
+    @Optional() private readonly client?: SunrateClient,
   ) {}
+
+  /**
+   * Asks the gateway about an attempt and applies what it finds. A query
+   * that proves nothing changes no state: it only records that it happened.
+   */
+  async reconcile(
+    attemptId: string,
+    source: 'ADMIN' | 'STOREFRONT' = 'ADMIN',
+  ): Promise<ReconcileResult> {
+    const attempt = await this.prisma.sunratePaymentAttempt.findUnique({
+      where: { id: attemptId },
+      include: {
+        order: { select: { orderNumber: true, paymentStatus: true, orderStatus: true } },
+      },
+    });
+    if (!attempt) throw new NotFoundException('This payment attempt does not exist');
+
+    const last = this.lastQuery.get(attemptId);
+    if (last !== undefined && Date.now() - last < QUERY_THROTTLE_MS) {
+      throw new ConflictException('QUERY_THROTTLED');
+    }
+    this.lastQuery.set(attemptId, Date.now());
+    if (!this.client) throw new HttpException('GATEWAY_NOT_CONFIGURED', 502);
+
+    const query = await this.client.queryOrder({
+      orderNum: attempt.merchantOrderNum,
+      paymentMethod: attempt.channel,
+      // The transaction time the pre-order was signed with.
+      transTime: attempt.merchantOrderNum.slice(2, 16),
+    });
+    this.logger.log(
+      JSON.stringify({
+        event: 'sunrate.reconciled',
+        source,
+        attemptId: attempt.id,
+        orderNumber: attempt.order.orderNumber,
+        respCode: query.respCode,
+      }),
+    );
+
+    if (query.respCode === '00') {
+      await this.applyVerifiedResult({
+        merchantOrderNum: attempt.merchantOrderNum,
+        transId: query.transId ?? '',
+        respCode: '00',
+        // The query answer carries no amount: the order's own snapshot is
+        // the only amount there is, and it is the one that was charged.
+        amount: attempt.amount.toFixed(2),
+        currency: attempt.currency,
+        paymentBrand: query.paymentBrand,
+        gwTime: String(query.raw.gwTime ?? ''),
+        merId: query.raw.merID,
+        transType: query.raw.transType,
+        source: 'QUERY',
+      });
+    } else {
+      await this.prisma.sunratePaymentAttempt.update({
+        where: { id: attempt.id },
+        data: {
+          lastQueryAt: new Date(),
+          lastResult: {
+            ...asObject(attempt.lastResult),
+            query: {
+              respCode: query.respCode,
+              respMsg: query.respMsg,
+              at: new Date().toISOString(),
+            },
+          },
+        },
+      });
+    }
+
+    const fresh = await this.prisma.sunratePaymentAttempt.findUnique({
+      where: { id: attempt.id },
+      include: { order: { select: { orderNumber: true, paymentStatus: true } } },
+    });
+    return {
+      orderNumber: attempt.order.orderNumber,
+      paymentStatus: fresh?.order.paymentStatus ?? attempt.order.paymentStatus,
+      attemptStatus: fresh?.status ?? attempt.status,
+      lastQueryAt: fresh?.lastQueryAt ?? null,
+    };
+  }
 
   async applyVerifiedResult(input: VerifiedResultInput): Promise<VerifiedOutcome> {
     const applied = await this.prisma.$transaction(async (tx): Promise<ApplyResult> => {
