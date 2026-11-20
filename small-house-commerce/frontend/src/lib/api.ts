@@ -25,6 +25,36 @@ export const serverApiUrl = (path: string): string => {
 // --- types (mirror the backend storefront responses) -------------------------
 
 /**
+ * The payment choices the storefront offers. COD is the default and stays
+ * available until an operator switches it off.
+ */
+export type PaymentMethodId = "COD" | "CARD" | "GCASH" | "BPI";
+
+export interface PaymentMethodOption {
+  id: PaymentMethodId;
+  enabled: boolean;
+}
+
+/** What the server says about the payment methods right now. */
+export interface PaymentMethodsResponse {
+  codEnabled: boolean;
+  revision: number;
+  methods: PaymentMethodOption[];
+}
+
+/**
+ * The payment handle an online checkout answers with. Card carries a
+ * paySession, the wallets a payUrl; the environment is never guessed.
+ */
+export interface OrderPaymentHandle {
+  attemptId: string;
+  channel: string;
+  env: "test" | "production";
+  paySession?: string;
+  payUrl?: string;
+}
+
+/**
  * Per-page hero appearance, shared by category and collection landing pages
  * (they render through the same component). Absent/null = the default:
  * a centered name on the page background.
@@ -977,6 +1007,8 @@ export const api = {
      * identify the shopper or to authorize anything outside that draft.
      */
     checkoutDraftToken?: string | null;
+    /** The payment the shopper chose; COD when they chose nothing. */
+    paymentMethod?: PaymentMethodId;
   }) =>
     request<{
       orderNumber: string;
@@ -984,6 +1016,8 @@ export const api = {
       confirmationStatus: string;
       /** The final server-computed total; use this for Purchase value. */
       grandTotal: number;
+      /** Present for an online checkout; absent for cash on delivery. */
+      payment?: OrderPaymentHandle;
     }>(
       "/api/v1/storefront/orders",
       {
@@ -1002,12 +1036,21 @@ export const api = {
           metaConsent: input.metaConsent === true,
           idempotencyKey: input.idempotencyKey ?? null,
           checkoutDraftToken: input.checkoutDraftToken ?? null,
+          paymentMethod: input.paymentMethod ?? "COD",
         }),
         // F04: the order request has its own deadline. A timeout is an
         // unknown outcome, recovered through checkoutAttemptStatus below.
         timeoutMs: PLACE_ORDER_RESPONSE_BUDGET_MS,
       },
     ),
+
+  /**
+   * The payment methods the shopper may choose right now. The server owns
+   * the list: the storefront keeps no switch of its own, so a method that
+   * was switched off disappears on the next load.
+   */
+  getPaymentMethods: (): Promise<PaymentMethodsResponse> =>
+    request<PaymentMethodsResponse>("/api/v1/storefront/payments/methods"),
 
   /**
    * F04 result recovery: has the attempt behind this idempotency key produced

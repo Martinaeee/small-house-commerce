@@ -54,8 +54,11 @@ import { NewsletterOfferPrompt } from "@/components/newsletter/NewsletterOfferPr
 import { clearStoredNewsletterCode } from "@/components/newsletter/newsletterOfferChannel";
 
 import { OrderPreview } from "./OrderPreview";
+import { PaymentMethodSelector, usePaymentMethods } from "./PaymentMethodSelector";
 import { CheckoutTrustStrip } from "./CheckoutTrustStrip";
 import { checkoutQueryString } from "./checkoutItems";
+import { storePaymentSession } from "@/lib/paymentSession";
+import type { OrderPaymentHandle, PaymentMethodId } from "@/lib/api";
 
 /**
  * COD review step (design spec §3.4): the form page validates and stashes the
@@ -65,6 +68,13 @@ import { checkoutQueryString } from "./checkoutItems";
  * single-step flow used to; on success the draft is cleared alongside the
  * existing cart-line removal and total stash.
  */
+
+const PAYMENT_LABELS: Record<PaymentMethodId, string> = {
+  COD: "Cash on Delivery",
+  CARD: "Credit or Debit Card",
+  GCASH: "GCash",
+  BPI: "BPI Bank Transfer",
+};
 
 /**
  * Format an ISO yyyy-MM-dd value as "Oct 3, 2026" in Asia/Manila. The stored
@@ -227,6 +237,11 @@ export function CheckoutConfirmView({
   const [error, setError] = useState<string | null>(null);
   const [appliedPromo, setAppliedPromo] = useState<AppliedPromo | null>(null);
   const [promoChecking, setPromoChecking] = useState(false);
+  // The payment the shopper chose on the form page. The server owns which
+  // methods exist; this page re-reads them and refuses a choice that was
+  // switched off in the meantime.
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethodId>("COD");
+  const paymentMethods = usePaymentMethods();
   const checkoutHref = `/checkout${checkoutQueryString({
     skuId,
     qty,
@@ -276,6 +291,17 @@ export function CheckoutConfirmView({
       ? null
       : Math.max(0, checkout.total - (appliedPromo?.discountAmount ?? 0));
 
+  // The chosen method can be switched off between the form page and this one.
+  // When the server says it is gone, the shopper chooses again instead of
+  // placing an order the backend would refuse.
+  const paymentMethodClosed =
+    !paymentMethods.loading &&
+    paymentMethods.error === null &&
+    (paymentMethod === "COD"
+      ? !paymentMethods.codEnabled
+      : paymentMethods.methods.find((method) => method.id === paymentMethod)?.enabled !==
+        true);
+
   useEffect(() => {
     let alive = true;
     void (async () => {
@@ -309,6 +335,7 @@ export function CheckoutConfirmView({
       }
       setPromoChecking(Boolean(d.promoCode));
       setDraft(d);
+      setPaymentMethod(d.paymentMethod ?? "COD");
       // F04: a reload after a lost response or a timeout resumes the durable
       // attempt. An already-confirmed attempt re-opens its receipt; an
       // unresolved one is polled, never resubmitted with a fresh key.
@@ -371,6 +398,7 @@ export function CheckoutConfirmView({
     grandTotal: number,
     items: readonly { skuId: string; quantity: number }[],
     metaConsent: boolean,
+    payment?: OrderPaymentHandle,
   ): void {
     stopPolling();
     inFlightRef.current = false;
@@ -382,11 +410,14 @@ export function CheckoutConfirmView({
     if (checkout.isBuyNow) clearCheckoutSubmission(checkoutHref);
     try {
       // value is the server's authoritative total. Consent rides along so the
-      // browser event stays with the choice in force at submit.
-      storePurchasePayload(
-        purchaseEvent({ orderId: orderNumber, items, value: grandTotal }),
-        metaConsent,
-      );
+      // browser event stays with the choice in force at submit. An online
+      // order sends no Purchase here: it fires once the payment is verified.
+      if (!payment) {
+        storePurchasePayload(
+          purchaseEvent({ orderId: orderNumber, items, value: grandTotal }),
+          metaConsent,
+        );
+      }
       const current = readCheckoutDraft();
       sessionStorage.setItem(
         "lastPreferredDate",
@@ -409,6 +440,23 @@ export function CheckoutConfirmView({
         clearCompletedCheckout(checkoutHref);
         clearCheckoutSubmission(checkoutHref);
       });
+    }
+    if (payment) {
+      // The order exists but is not paid yet. The shopper still has to pay:
+      // the wallet leaves the site, the card comes back to the payment page.
+      if (payment.payUrl) {
+        window.location.assign(payment.payUrl);
+        return;
+      }
+      if (payment.paySession) {
+        storePaymentSession({
+          paySession: payment.paySession,
+          env: payment.env,
+          orderNumber,
+        });
+      }
+      router.push(`/payment-return/${orderNumber}`);
+      return;
     }
     router.push(`/order-success/${orderNumber}`);
   }
@@ -523,6 +571,7 @@ export function CheckoutConfirmView({
         items: checkout.orderItems,
         ...readAttribution(),
         attribution: { sourceType: "ORGANIC" },
+        paymentMethod,
         preferredDeliveryDate: draft.preferredDeliveryDate ?? null,
         promoCode: appliedPromo?.code ?? null,
         customerNote: draft.customerNote ?? null,
@@ -555,6 +604,7 @@ export function CheckoutConfirmView({
         order.grandTotal,
         submission.payload.items,
         submission.metaConsent,
+        order.payment,
       );
     } catch (e) {
       if (outcomeIsUnknown(e)) {
@@ -767,7 +817,7 @@ export function CheckoutConfirmView({
           {/* Payment + totals */}
           <div className="flex flex-col gap-4">
             <div className="rounded-lg border border-border bg-card p-5">
-              <p className="text-sm font-medium text-ink">Cash on Delivery</p>
+              <p className="text-sm font-medium text-ink">{PAYMENT_LABELS[paymentMethod]}</p>
               <dl className="mt-3 flex flex-col gap-2 border-t border-border pt-3 text-sm">
                 <div className="flex justify-between">
                   <dt className="text-ink-secondary">Subtotal</dt>
@@ -798,7 +848,9 @@ export function CheckoutConfirmView({
                   <dd className="font-semibold text-ink">Free</dd>
                 </div>
                 <div className="flex justify-between border-t border-border pt-3 text-base">
-                  <dt className="font-semibold text-ink">Total (COD)</dt>
+                  <dt className="font-semibold text-ink">
+                    {paymentMethod === "COD" ? "Total (COD)" : "Total"}
+                  </dt>
                   <dd className="font-bold text-ink">
                     {discountedTotal !== null
                       ? formatPrice(discountedTotal)
@@ -938,9 +990,20 @@ export function CheckoutConfirmView({
               {autosaveStatusLabel(confirmAutosave.status)}
             </p>
 
+            {paymentMethodClosed && (
+              <p
+                role="status"
+                data-testid="confirm-payment-method-closed"
+                className="mb-3 rounded-lg border border-sale/40 bg-sale/5 px-3 py-2 text-sm text-sale"
+              >
+                This payment method is no longer available. Please go back and
+                choose another one.
+              </p>
+            )}
+
             <Button
               onClick={placeOrder}
-              disabled={busy || awaitingBuyNowResolution || promoChecking}
+              disabled={busy || awaitingBuyNowResolution || promoChecking || paymentMethodClosed}
               className="w-full"
               data-testid="confirm-place-order"
             >
@@ -950,10 +1013,12 @@ export function CheckoutConfirmView({
                   ? "Confirming your order…"
                   : phase === "UNKNOWN"
                     ? "TRY AGAIN"
-                    : "PLACE COD ORDER"}
+                    : paymentMethod === "COD"
+                      ? "PLACE COD ORDER"
+                      : "PLACE ORDER"}
             </Button>
             <p className="mt-2 text-center text-xs text-ink-muted">
-              Cash on Delivery
+              {PAYMENT_LABELS[paymentMethod]}
             </p>
           </div>
         </div>

@@ -27,6 +27,7 @@ const apiMock = vi.hoisted(() => ({
   createOrder: vi.fn(),
   checkoutAttemptStatus: vi.fn(),
   previewPromoCode: vi.fn(),
+  getPaymentMethods: vi.fn(),
 }));
 vi.mock("@/lib/api", async () => ({ ...await vi.importActual("@/lib/api"), api: apiMock }));
 const eventsMock = vi.hoisted(() => ({
@@ -183,6 +184,16 @@ beforeEach(() => {
   });
   draftMock.readCheckoutDraft.mockReturnValue(validDraft);
   apiMock.checkoutAttemptStatus.mockResolvedValue({ state: "PENDING" });
+  apiMock.getPaymentMethods.mockResolvedValue({
+    codEnabled: true,
+    revision: 1,
+    methods: [
+      { id: "COD", enabled: true },
+      { id: "CARD", enabled: true },
+      { id: "GCASH", enabled: true },
+      { id: "BPI", enabled: true },
+    ],
+  });
   sessionStorage.clear();
   localStorage.clear();
 });
