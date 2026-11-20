@@ -11,6 +11,13 @@ import {
   OrderReceiptService,
 } from '../order-receipt.service.js';
 import { OrdersService } from '../orders.service.js';
+import {
+  PAYMENT_CAPABILITY_COOKIE,
+  PAYMENT_CAPABILITY_PATH,
+  PAYMENT_CAPABILITY_TTL_MS,
+  PaymentCapabilityService,
+} from '../../payments/payment-capability.service.js';
+import { PaymentsService } from '../../payments/payments.service.js';
 import { StorefrontOrdersController } from './orders.controller.js';
 
 const CHECKOUT_BODY = {
@@ -34,7 +41,7 @@ function receipts(deny: string[] = []) {
   );
 }
 
-async function app(options: { deny?: string[]; placedAt?: Date | null } = {}) {
+async function app(options: { deny?: string[]; placedAt?: Date | null; online?: boolean } = {}) {
   const placedAt = options.placedAt === undefined ? new Date('2026-11-09T06:00:00Z') : options.placedAt;
   const ordersService = {
     checkout: vi.fn(async () => ({
@@ -44,6 +51,10 @@ async function app(options: { deny?: string[]; placedAt?: Date | null } = {}) {
       riskType: null,
       requiresReview: false,
       grandTotal: 199,
+      // An online checkout also carries the attempt the session is made from.
+      ...(options.online
+        ? { payment: { attemptId: 'attempt-1', channel: 'gcash', env: 'test' } }
+        : {}),
     })),
     receiptStatus: vi.fn(async (orderNumber: string) =>
       placedAt && orderNumber === 'PH100030' ? { ok: true as const, placedAt } : null,
@@ -60,17 +71,30 @@ async function app(options: { deny?: string[]; placedAt?: Date | null } = {}) {
         : null,
     ),
   };
+  const payments = {
+    initiateGatewaySession: vi.fn(async () => ({
+      attemptId: 'attempt-1',
+      channel: 'gcash',
+      env: 'test',
+      payUrl: 'https://test.xunhuiacq.com/b2c-cashier/#/cashier?key=abc',
+    })),
+  };
+  const capability = new PaymentCapabilityService(
+    new ConfigService({ jwt: { secret: 'payment-capability-controller-unit-test-secret' } }),
+  );
   const module = await Test.createTestingModule({
     controllers: [StorefrontOrdersController],
     providers: [
       { provide: OrderReceiptService, useValue: receipts(options.deny) },
       { provide: OrdersService, useValue: ordersService },
+      { provide: PaymentsService, useValue: payments },
+      { provide: PaymentCapabilityService, useValue: capability },
     ],
   }).compile();
   const instance = module.createNestApplication();
   instance.set('trust proxy', 1);
   await instance.init();
-  return { instance, ordersService };
+  return { instance, ordersService, payments };
 }
 
 describe('StorefrontOrdersController', () => {
@@ -115,6 +139,64 @@ describe('checkout receipt cookie', () => {
 
       const cookies = (response.headers['set-cookie'] as unknown as string[]) ?? [];
       expect(cookies.some((value) => value.startsWith(`${ORDER_RECEIPT_COOKIE}=`))).toBe(false);
+    } finally {
+      await instance.close();
+    }
+  });
+});
+
+/**
+ * An online checkout starts the gateway session before it answers, so the
+ * shopper can pay straight away, and hands out a short-lived capability
+ * cookie that lets the payment status endpoint prove the order it asks
+ * about. A COD checkout never touches either.
+ */
+describe('checkout online payment', () => {
+  it('returns the gateway session and sets the capability cookie', async () => {
+    const { instance, payments } = await app({ online: true });
+    try {
+      const response = await request(instance.getHttpServer())
+        .post('/storefront/orders')
+        .set('X-Forwarded-Proto', 'https')
+        .send({ ...CHECKOUT_BODY, paymentMethod: 'GCASH' });
+
+      expect(response.status).toBe(201);
+      expect(response.body.payment).toEqual({
+        attemptId: 'attempt-1',
+        channel: 'gcash',
+        env: 'test',
+        payUrl: 'https://test.xunhuiacq.com/b2c-cashier/#/cashier?key=abc',
+      });
+      expect(payments.initiateGatewaySession).toHaveBeenCalledWith(
+        'PH100030',
+        expect.anything(),
+      );
+      const cookies = response.headers['set-cookie'] as unknown as string[];
+      const capability = cookies.find((value) => value.startsWith(`${PAYMENT_CAPABILITY_COOKIE}=`));
+      expect(capability).toBeDefined();
+      expect(capability).toContain('HttpOnly');
+      expect(capability).toContain('SameSite=Lax');
+      expect(capability).toContain(`Path=${PAYMENT_CAPABILITY_PATH}`);
+      expect(capability).toContain(`Max-Age=${PAYMENT_CAPABILITY_TTL_MS / 1000}`);
+      expect(capability).toContain('Secure');
+    } finally {
+      await instance.close();
+    }
+  });
+
+  it('returns no payment key and sets no capability cookie for a COD checkout', async () => {
+    const { instance, payments } = await app();
+    try {
+      const response = await request(instance.getHttpServer())
+        .post('/storefront/orders')
+        .set('X-Forwarded-Proto', 'https')
+        .send(CHECKOUT_BODY);
+
+      expect(response.status).toBe(201);
+      expect(response.body.payment).toBeUndefined();
+      expect(payments.initiateGatewaySession).not.toHaveBeenCalled();
+      const cookies = (response.headers['set-cookie'] as unknown as string[]) ?? [];
+      expect(cookies.some((value) => value.startsWith(`${PAYMENT_CAPABILITY_COOKIE}=`))).toBe(false);
     } finally {
       await instance.close();
     }

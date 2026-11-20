@@ -16,6 +16,8 @@ export class SunrateGatewayError extends Error {
   constructor(
     readonly respCode: string,
     readonly respMsg: string,
+    /** The HTTP status of the answer, when there was one. */
+    readonly httpStatus?: number,
   ) {
     super(`SUNRATE gateway rejected the request: ${respCode} ${respMsg}`);
     this.name = 'SunrateGatewayError';
@@ -157,7 +159,11 @@ export class SunrateClient {
     const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
     const respCode = String(payload.respCode ?? '');
     if (respCode !== '00') {
-      throw new SunrateGatewayError(respCode || `HTTP ${response.status}`, String(payload.respMsg ?? ''));
+      throw new SunrateGatewayError(
+        respCode || `HTTP ${response.status}`,
+        String(payload.respMsg ?? ''),
+        response.status,
+      );
     }
     return payload;
   }
@@ -171,8 +177,11 @@ export const isOfficialSunratePayUrl = (url: string): boolean => {
       (parsed.hostname === new URL(SUNRATE_TEST_API).hostname ||
         parsed.hostname === new URL(SUNRATE_PRODUCTION_API).hostname ||
         // Wallet redirects may land on channel domains; the allow-list grows
-        // only after sandbox evidence per the design's §11 rule.
-        parsed.hostname.endsWith('.sunrate.com'))
+        // only after sandbox evidence per the design's §11 rule. The official
+        // wallet example answers with a cashier on the acquirer's own test
+        // domain (test.xunhuiacq.com), so that family is trusted too.
+        parsed.hostname.endsWith('.sunrate.com') ||
+        parsed.hostname.endsWith('.xunhuiacq.com'))
     );
   } catch {
     return false;
