@@ -1,4 +1,4 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, Header } from '@nestjs/common';
 import { PaymentMethodsService } from '../payment-methods.service.js';
 
 /**
@@ -9,11 +9,12 @@ import { PaymentMethodsService } from '../payment-methods.service.js';
  */
 @Controller('storefront/payments')
 export class StorefrontPaymentsMethodsController {
-  constructor(private readonly methods: PaymentMethodsService) {}
+  constructor(private readonly paymentMethods: PaymentMethodsService) {}
 
   @Get('methods')
-  async methods() {
-    const result = await this.methods.listEffectiveMethods();
+  @Header('Cache-Control', 'no-store')
+  async list() {
+    const result = await this.paymentMethods.listEffectiveMethods();
     return {
       codEnabled: result.codEnabled,
       revision: result.revision,
