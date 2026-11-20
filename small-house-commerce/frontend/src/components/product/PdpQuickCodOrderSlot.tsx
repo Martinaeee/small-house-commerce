@@ -2,6 +2,7 @@
 
 import dynamic from "next/dynamic";
 import type { ReactNode } from "react";
+import { usePaymentMethods } from "@/components/checkout/PaymentMethodSelector";
 import { useDesktopViewport } from "./useDesktopViewport";
 
 /**
@@ -25,6 +26,18 @@ const QuickOrderChunk = dynamic(
 
 export function PdpQuickCodOrderSlot(): ReactNode {
   const desktop = useDesktopViewport();
+  const paymentMethods = usePaymentMethods();
   if (!desktop) return null;
+  // Cash on delivery was switched off: the inline form is gone, because it
+  // only ever places a cash order. A failed request keeps the form — the
+  // backend refuses the submit anyway, and a real page beats a form that
+  // disappeared.
+  if (
+    !paymentMethods.loading &&
+    paymentMethods.error === null &&
+    !paymentMethods.codEnabled
+  ) {
+    return null;
+  }
   return <QuickOrderChunk />;
 }
