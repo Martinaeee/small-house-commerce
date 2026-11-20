@@ -15,6 +15,18 @@ describe('analytics event names', () => {
     }
   });
 
+  it('accepts the checkout item timeout event', () => {
+    expect(analyticsEventNames).toContain('CHECKOUT_ITEM_TIMEOUT');
+    expect(
+      analyticsEventSchema.safeParse({
+        ...base,
+        eventName: 'CHECKOUT_ITEM_TIMEOUT',
+        entityId: 'pegboard-storage-cabinet-wheels-hooks',
+        metadata: { skuId: 'sku-1', userAgent: 'Mozilla/5.0', networkType: '4g' },
+      }).success,
+    ).toBe(true);
+  });
+
   it('keeps rejecting names outside the list', () => {
     expect(analyticsEventSchema.safeParse({ ...base, eventName: 'CHECKOUT_SUBMIT' }).success).toBe(false);
   });

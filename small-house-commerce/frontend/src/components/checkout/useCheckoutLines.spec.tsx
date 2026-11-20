@@ -1,11 +1,14 @@
 import { act, renderHook } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cardTestProduct } from "@/test/product-card-fixtures";
 import { useCheckoutLines } from "./useCheckoutLines";
 
 vi.mock("@/components/cart/CartContext", () => ({
   useCart: () => ({ cart: null, loading: false }),
 }));
+
+const analyticsMock = vi.hoisted(() => ({ trackFirstParty: vi.fn() }));
+vi.mock("@/lib/analytics", () => analyticsMock);
 
 const PEGBOARD = cardTestProduct({
   slug: "pegboard",
@@ -19,6 +22,10 @@ const PEGBOARD = cardTestProduct({
       sku: { id: "sku-1", skuCode: "T2", status: "ACTIVE", price: 2399, compareAtPrice: 2999, availableInventory: 4 },
     },
   ],
+});
+
+beforeEach(() => {
+  analyticsMock.trackFirstParty.mockClear();
 });
 
 afterEach(() => {
@@ -38,6 +45,26 @@ describe("useCheckoutLines Buy Now item loading", () => {
       await vi.advanceTimersByTimeAsync(10_200);
     });
     expect(result.current.productError).toBe(true);
+  });
+
+  it("reports the timeout with the product slug and shopper context", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>(() => {})));
+    renderHook(() => useCheckoutLines({ skuId: "sku-1", qty: "1", slug: "pegboard" }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_200);
+    });
+    expect(analyticsMock.trackFirstParty).toHaveBeenCalledTimes(1);
+    expect(analyticsMock.trackFirstParty).toHaveBeenCalledWith(
+      "CHECKOUT_ITEM_TIMEOUT",
+      expect.objectContaining({
+        entityId: "pegboard",
+        metadata: expect.objectContaining({
+          skuId: "sku-1",
+          userAgent: expect.any(String),
+        }),
+      }),
+    );
   });
 
   it("recovers through an explicit retry after a failed load", async () => {

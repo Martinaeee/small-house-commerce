@@ -19,6 +19,7 @@ export const analyticsEventNames = [
   'SEARCH',
   'CHECKOUT_SUBMIT_ATTEMPT',
   'CHECKOUT_SUBMIT_FAILED',
+  'CHECKOUT_ITEM_TIMEOUT',
 ] as const;
 
 export const analyticsEventSchema = z

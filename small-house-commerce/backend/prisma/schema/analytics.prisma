@@ -29,6 +29,10 @@ enum AnalyticsEventName {
   /// order (validation, stock, network, server).
   CHECKOUT_SUBMIT_ATTEMPT
   CHECKOUT_SUBMIT_FAILED
+  /// Buy Now checkout opened but its product request exceeded the browser's
+  /// 10s deadline, so the shopper never saw the form. The funnel uses this to
+  /// count stuck-at-Loading-item sessions the server logs cannot see.
+  CHECKOUT_ITEM_TIMEOUT
 }
 
 model AnalyticsEvent {

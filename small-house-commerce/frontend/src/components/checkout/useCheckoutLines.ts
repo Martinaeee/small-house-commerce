@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
-import { api, type CartItem, type Product } from "@/lib/api";
+import { api, ApiTimeoutError, type CartItem, type Product } from "@/lib/api";
+import { trackFirstParty } from "@/lib/analytics";
 import { useCart } from "@/components/cart/CartContext";
 import { clampQty, parseItemsParam, totalsFor, buyNowLineOptions, buyNowThumbnail, cartLineOptions, type CheckoutLine, type CheckoutTotals } from "./checkoutItems";
 
@@ -69,8 +70,23 @@ export function useCheckoutLines({
       .then((p) => {
         if (!cancelled) setProduct(p);
       })
-      .catch(() => {
-        if (!cancelled) setProductError(true);
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        setProductError(true);
+        // Only a deadline breach is the "stuck at Loading item" case this
+        // event exists to count; fast failures show the error page instead.
+        if (error instanceof ApiTimeoutError) {
+          trackFirstParty("CHECKOUT_ITEM_TIMEOUT", {
+            entityId: productSlug,
+            metadata: {
+              skuId: skuId ?? null,
+              userAgent:
+                typeof navigator !== "undefined"
+                  ? navigator.userAgent.slice(0, 200)
+                  : null,
+            },
+          });
+        }
       });
     return () => {
       cancelled = true;

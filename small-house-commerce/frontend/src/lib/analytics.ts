@@ -26,7 +26,8 @@ export type FirstPartyEventName =
   | "HOMEPAGE_SECTION_CLICK"
   | "SEARCH"
   | "CHECKOUT_SUBMIT_ATTEMPT"
-  | "CHECKOUT_SUBMIT_FAILED";
+  | "CHECKOUT_SUBMIT_FAILED"
+  | "CHECKOUT_ITEM_TIMEOUT";
 
 export type DeviceType = "desktop" | "tablet" | "mobile";
 
