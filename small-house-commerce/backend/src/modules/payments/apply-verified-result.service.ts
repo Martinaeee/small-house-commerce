@@ -1,6 +1,7 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { Prisma } from '../../generated/prisma/client.js';
+import { MetaCapiService, type PurchaseEnqueueInput } from '../meta-capi/meta-capi.service.js';
 
 /**
  * A verified gateway result, either from the notification or from a query.
@@ -26,6 +27,12 @@ export type VerifiedOutcome =
   | 'DUPLICATE'
   | 'REVIEW'
   | 'IGNORED_LATE_FAILURE';
+
+/** What the transaction hands back: the outcome and, for a paid order, the Purchase facts. */
+interface ApplyResult {
+  outcome: VerifiedOutcome;
+  purchase?: PurchaseEnqueueInput;
+}
 
 /**
  * The brands each channel may be paid with (docs.acq.sunrate.com/v5
@@ -75,10 +82,16 @@ export const parseGatewayTime = (value: string): Date | null => {
  */
 @Injectable()
 export class ApplyVerifiedResultService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly logger = new Logger(ApplyVerifiedResultService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    // Optional so a direct unit construction keeps working; Nest injects it.
+    @Optional() private readonly metaCapi?: MetaCapiService,
+  ) {}
 
   async applyVerifiedResult(input: VerifiedResultInput): Promise<VerifiedOutcome> {
-    return this.prisma.$transaction(async (tx) => {
+    const applied = await this.prisma.$transaction(async (tx): Promise<ApplyResult> => {
       // One lock per merchant order number: the same notification delivered
       // twice must not be applied twice.
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${input.merchantOrderNum}, 0))`;
@@ -86,32 +99,49 @@ export class ApplyVerifiedResultService {
       const attempt = await tx.sunratePaymentAttempt.findUnique({
         where: { merchantOrderNum: input.merchantOrderNum },
       });
-      if (!attempt) return 'REVIEW';
+      if (!attempt) return { outcome: 'REVIEW' };
 
       const order = await tx.order.findUnique({
         where: { id: attempt.orderId },
-        include: { payments: true },
+        include: {
+          payments: true,
+          items: { select: { skuId: true, quantity: true, unitPrice: true } },
+          customer: { select: { normalizedPhone: true } },
+        },
       });
-      if (!order) return 'REVIEW';
+      if (!order) return { outcome: 'REVIEW' };
 
       const mismatch = this.mismatch(attempt, input);
-      if (mismatch) return this.markReview(tx, attempt, mismatch);
+      if (mismatch) return { outcome: await this.markReview(tx, attempt, mismatch) };
 
       // A paid payment is never downgraded: a late failure says nothing
       // about money that already arrived.
       if (attempt.status === 'SUCCEEDED' || order.paymentStatus === 'PAID') {
-        return input.respCode === '00' ? 'DUPLICATE' : 'IGNORED_LATE_FAILURE';
+        return { outcome: input.respCode === '00' ? 'DUPLICATE' : 'IGNORED_LATE_FAILURE' };
       }
 
       // A cancelled order is not paid by a notification; it goes to a human.
       if (order.orderStatus === 'CANCELLED') {
-        return this.markReview(tx, attempt, 'ORDER_CANCELLED');
+        return { outcome: await this.markReview(tx, attempt, 'ORDER_CANCELLED') };
       }
 
       if (input.respCode === '00') return this.markPaid(tx, attempt, order, input);
-      if (input.respCode === '01') return this.markFailed(tx, attempt, order);
-      return this.markReview(tx, attempt, `UNEXPECTED_RESP_CODE_${input.respCode}`);
+      if (input.respCode === '01') return { outcome: await this.markFailed(tx, attempt, order) };
+      return {
+        outcome: await this.markReview(tx, attempt, `UNEXPECTED_RESP_CODE_${input.respCode}`),
+      };
     });
+
+    if (applied.purchase) {
+      try {
+        await this.metaCapi?.enqueuePurchase(applied.purchase);
+      } catch (error) {
+        // A measurement hiccup must never undo a payment that already
+        // arrived; the row is retried by the worker when it lands.
+        this.logger.warn(`meta purchase enqueue failed: ${(error as Error).message}`);
+      }
+    }
+    return applied.outcome;
   }
 
   /** Everything that must match the order exactly, or the result is a guess. */
@@ -140,10 +170,14 @@ export class ApplyVerifiedResultService {
     },
     order: {
       id: string;
+      orderNumber: string;
+      grandTotal: Prisma.Decimal;
       payments: { id: string }[];
+      items: { skuId: string; quantity: number; unitPrice: Prisma.Decimal }[];
+      customer: { normalizedPhone: string } | null;
     },
     input: VerifiedResultInput,
-  ): Promise<VerifiedOutcome> {
+  ): Promise<ApplyResult> {
     const gatewayTime = parseGatewayTime(input.gwTime);
     // An unreadable gateway time is noted, but the money still arrived:
     // the order is paid and the moment is the moment we heard about it.
@@ -153,6 +187,7 @@ export class ApplyVerifiedResultService {
       await tx.payment.update({ where: { id: payment.id }, data: { status: 'PAID', paidAt } });
     }
     await tx.order.update({ where: { id: order.id }, data: { paymentStatus: 'PAID' } });
+    const saved = asObject(attempt.lastResult);
     await tx.sunratePaymentAttempt.update({
       where: { id: attempt.id },
       data: {
@@ -161,7 +196,7 @@ export class ApplyVerifiedResultService {
         // The brand is only kept when the gateway sent one.
         ...(input.paymentBrand ? { cardBrand: input.paymentBrand } : {}),
         lastResult: {
-          ...asObject(attempt.lastResult),
+          ...saved,
           payment: {
             respCode: input.respCode,
             transId: input.transId,
@@ -172,15 +207,44 @@ export class ApplyVerifiedResultService {
         },
       },
     });
-    return 'APPLIED';
+
+    // The Purchase event is the money event, and an online order never sent
+    // one at checkout: it is queued here, with the facts the checkout saved.
+    // The shopper's address and browser are never borrowed from the server.
+    const eventSourceUrl =
+      typeof saved.eventSourceUrl === 'string' && saved.eventSourceUrl.length > 0
+        ? saved.eventSourceUrl
+        : null;
+    return {
+      outcome: 'APPLIED',
+      ...(eventSourceUrl
+        ? {
+            purchase: {
+              orderNumber: order.orderNumber,
+              items: order.items.map((item) => ({
+                skuId: item.skuId,
+                quantity: item.quantity,
+                unitPrice: Number(item.unitPrice),
+              })),
+              value: Number(order.grandTotal),
+              phone: order.customer?.normalizedPhone ?? null,
+              consent: saved.metaConsent === true,
+              fbp: typeof saved.fbp === 'string' ? saved.fbp : null,
+              fbc: typeof saved.fbc === 'string' ? saved.fbc : null,
+              clientIp: null,
+              clientUserAgent: null,
+              eventSourceUrl,
+            },
+          }
+        : {}),
+    };
   }
 
   private async markFailed(
     tx: Prisma.TransactionClient,
     attempt: { id: string; lastResult: Prisma.JsonValue | null },
     order: { id: string; payments: { id: string }[] },
-  ): Promise<VerifiedOutcome> {
-    const payment = order.payments[0];
+  ): Promise<VerifiedOutcome> {    const payment = order.payments[0];
     if (payment) {
       await tx.payment.update({ where: { id: payment.id }, data: { status: 'FAILED' } });
     }

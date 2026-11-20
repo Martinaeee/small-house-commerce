@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { MetaCapiModule } from '../meta-capi/meta-capi.module.js';
 import { SunrateClient } from './sunrate.client.js';
 import { readSunrateConfig } from './sunrate.config.js';
 import { ApplyVerifiedResultService } from './apply-verified-result.service.js';
@@ -17,6 +18,7 @@ import { SunrateNotifyController } from './sunrate/notify.controller.js';
  * the gateway session.
  */
 @Module({
+  imports: [MetaCapiModule],
   controllers: [
     PaymentsAdminSettingsController,
     PaymentStatusController,
