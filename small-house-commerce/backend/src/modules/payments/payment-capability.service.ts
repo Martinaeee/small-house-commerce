@@ -54,35 +54,48 @@ export class PaymentCapabilityService {
     return `${body}.${this.sign(body)}`;
   }
 
-  verify(token: string | null | undefined, orderNumber: string, now = new Date()): boolean {
-    if (typeof token !== 'string' || token.length === 0 || token.length > 4096) return false;
-    const canonical = orderNumber.trim().toUpperCase();
+  /**
+   * Reads the capability a token carries, or null when the token is missing,
+   * forged or expired. The caller decides what to do with the order it
+   * names — the database is the only authority on whether that order exists.
+   */
+  read(token: string | null | undefined, now = new Date()): { orderNumber: string; attemptId: string } | null {
+    if (typeof token !== 'string' || token.length === 0 || token.length > 4096) return null;
 
     const parts = token.split('.');
-    if (parts.length !== 2 || parts[0] === '' || parts[1] === '') return false;
+    if (parts.length !== 2 || parts[0] === '' || parts[1] === '') return null;
 
     let payload: CapabilityPayload;
     try {
       payload = JSON.parse(Buffer.from(parts[0], 'base64url').toString('utf8')) as CapabilityPayload;
     } catch {
-      return false;
+      return null;
     }
     if (
       payload === null ||
       typeof payload !== 'object' ||
       payload.purpose !== 'pay-return' ||
-      payload.orderNumber !== canonical ||
+      typeof payload.orderNumber !== 'string' ||
+      payload.orderNumber.length === 0 ||
       typeof payload.attemptId !== 'string' ||
       payload.attemptId.length === 0 ||
       typeof payload.expiresAt !== 'string'
     ) {
-      return false;
+      return null;
     }
-    if (new Date(payload.expiresAt).getTime() <= now.getTime()) return false;
+    if (new Date(payload.expiresAt).getTime() <= now.getTime()) return null;
 
     const expected = Buffer.from(this.sign(parts[0]));
     const actual = Buffer.from(parts[1]);
-    return expected.length === actual.length && timingSafeEqual(expected, actual);
+    if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) return null;
+
+    return { orderNumber: payload.orderNumber, attemptId: payload.attemptId };
+  }
+
+  verify(token: string | null | undefined, orderNumber: string, now = new Date()): boolean {
+    const claimed = this.read(token, now);
+    if (!claimed) return false;
+    return claimed.orderNumber === orderNumber.trim().toUpperCase();
   }
 
   private sign(body: string): string {

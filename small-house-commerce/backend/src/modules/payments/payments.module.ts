@@ -6,6 +6,7 @@ import { PaymentMethodsService } from './payment-methods.service.js';
 import { PaymentCapabilityService } from './payment-capability.service.js';
 import { PaymentsService } from './payments.service.js';
 import { PaymentsAdminSettingsController } from './admin/payments-admin.controller.js';
+import { PaymentStatusController } from './storefront/payment-status.controller.js';
 import { StorefrontPaymentsMethodsController } from './storefront/payments-methods.controller.js';
 
 /**
@@ -14,7 +15,11 @@ import { StorefrontPaymentsMethodsController } from './storefront/payments-metho
  * the gateway session.
  */
 @Module({
-  controllers: [PaymentsAdminSettingsController, StorefrontPaymentsMethodsController],
+  controllers: [
+    PaymentsAdminSettingsController,
+    PaymentStatusController,
+    StorefrontPaymentsMethodsController,
+  ],
   providers: [
     PaymentMethodsService,
     PaymentCapabilityService,
