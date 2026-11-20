@@ -30,6 +30,7 @@ function order(overrides: Record<string, unknown> = {}) {
       {
         id: 'attempt-1',
         status: 'PENDING',
+        env: 'test',
         currency: 'PHP',
         amount: new Prisma.Decimal('199.00'),
         lastResult: { metaConsent: true },
@@ -72,6 +73,7 @@ describe('GET /payments/status', () => {
         orderNumber: 'PH100030',
         paymentStatus: 'ONLINE_PENDING',
         attemptStatus: 'PENDING',
+        env: 'test',
         amount: 199,
         currency: 'PHP',
       });
@@ -132,6 +134,7 @@ describe('GET /payments/status', () => {
           {
             id: 'attempt-1',
             status: 'SUCCEEDED',
+            env: 'test',
             currency: 'PHP',
             amount: new Prisma.Decimal('199.00'),
             lastResult: { metaConsent: true },
@@ -149,6 +152,7 @@ describe('GET /payments/status', () => {
         orderNumber: 'PH100030',
         paymentStatus: 'PAID',
         attemptStatus: 'SUCCEEDED',
+        env: 'test',
         paidAt: '2026-11-20T08:00:00.000Z',
         amount: 199,
         currency: 'PHP',
@@ -186,6 +190,7 @@ describe('GET /payments/status', () => {
         'amount',
         'attemptStatus',
         'currency',
+        'env',
         'orderNumber',
         'paymentStatus',
       ]);

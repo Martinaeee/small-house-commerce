@@ -54,6 +54,22 @@ export interface OrderPaymentHandle {
   payUrl?: string;
 }
 
+/** What the server says about the payment of one order. */
+export interface PaymentStatusResponse {
+  orderNumber: string;
+  paymentStatus: string;
+  attemptStatus: string | null;
+  /** The gateway environment of the attempt; the card SDK needs it. */
+  env: string | null;
+  paidAt?: string;
+  amount: number;
+  currency: string;
+  /** Present once the payment is verified as paid: the Purchase payload. */
+  value?: number;
+  items?: { skuId: string; quantity: number }[];
+  metaConsent?: boolean;
+}
+
 /**
  * Per-page hero appearance, shared by category and collection landing pages
  * (they render through the same component). Absent/null = the default:
@@ -1051,6 +1067,28 @@ export const api = {
    */
   getPaymentMethods: (): Promise<PaymentMethodsResponse> =>
     request<PaymentMethodsResponse>("/api/v1/storefront/payments/methods"),
+
+  /**
+   * The payment state of the order the capability cookie names. The cookie
+   * is HttpOnly and path-scoped, so the request has to carry it.
+   */
+  getPaymentStatus: (orderNumber?: string): Promise<PaymentStatusResponse> =>
+    request<PaymentStatusResponse>(
+      `/api/v1/payments/status${
+        orderNumber ? `?orderNumber=${encodeURIComponent(orderNumber)}` : ""
+      }`,
+      { credentials: "include" },
+    ),
+
+  /**
+   * Opens a new attempt for a payment that failed. The capability cookie
+   * names the order; the server refuses while a payment is still open.
+   */
+  retryPayment: (): Promise<{ orderNumber: string; payment: OrderPaymentHandle }> =>
+    request<{ orderNumber: string; payment: OrderPaymentHandle }>(
+      "/api/v1/payments/retry",
+      { method: "POST", credentials: "include" },
+    ),
 
   /**
    * F04 result recovery: has the attempt behind this idempotency key produced

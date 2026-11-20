@@ -17,6 +17,11 @@ export interface PaymentStatusResponse {
   /** The order's payment status, or CANCELLED when the order was cancelled. */
   paymentStatus: string;
   attemptStatus: string | null;
+  /**
+   * The gateway environment the attempt belongs to. The card checkout needs
+   * it to mount the right SDK; it is never guessed on the client.
+   */
+  env: string | null;
   paidAt?: string;
   amount: number;
   currency: string;
@@ -78,6 +83,7 @@ export class PaymentStatusController {
       orderNumber: order.orderNumber,
       paymentStatus: cancelled ? 'CANCELLED' : order.paymentStatus,
       attemptStatus: attempt?.status ?? null,
+      env: attempt?.env ?? null,
       amount,
       currency: attempt?.currency ?? 'PHP',
       ...(payment?.paidAt ? { paidAt: payment.paidAt.toISOString() } : {}),

@@ -54,7 +54,7 @@ import { NewsletterOfferPrompt } from "@/components/newsletter/NewsletterOfferPr
 import { clearStoredNewsletterCode } from "@/components/newsletter/newsletterOfferChannel";
 
 import { OrderPreview } from "./OrderPreview";
-import { PaymentMethodSelector, usePaymentMethods } from "./PaymentMethodSelector";
+import { usePaymentMethods } from "./PaymentMethodSelector";
 import { CheckoutTrustStrip } from "./CheckoutTrustStrip";
 import { checkoutQueryString } from "./checkoutItems";
 import { storePaymentSession } from "@/lib/paymentSession";

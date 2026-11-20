@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { CartItem, Product } from "@/lib/api";
+import type { Product } from "@/lib/api";
 import { CheckoutConfirmView } from "./CheckoutConfirmView";
 import { clearPaymentSession, readPaymentSession } from "@/lib/paymentSession";
 
@@ -90,30 +90,6 @@ const product: Product = {
     },
   ],
 } as unknown as Product;
-
-function item(): CartItem {
-  return {
-    itemId: "item-1",
-    skuId: "sku-red-small",
-    skuCode: "RED-SMALL",
-    productName: "Chair",
-    productSlug: "chair",
-    variantName: "Red / Small",
-    quantity: 1,
-    unitPrice: 100,
-    compareAtPrice: 130,
-    lineTotal: 100,
-    availableInventory: 4,
-    unavailable: false,
-    optionValues: [],
-    thumbnail: {
-      url: "/red-thumb.jpg",
-      type: "IMAGE",
-      altText: "Red chair",
-      resolvedScope: "OPTION_VALUE",
-    },
-  } as unknown as CartItem;
-}
 
 function draft(paymentMethod: string | undefined) {
   return {

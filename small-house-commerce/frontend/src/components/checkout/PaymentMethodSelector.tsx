@@ -93,22 +93,25 @@ export function usePaymentMethods(): PaymentMethodsState {
 
   useEffect(() => {
     let alive = true;
-    setLoading(true);
-    void api
-      .getPaymentMethods()
-      .then((response) => {
+    void (async () => {
+      // The await keeps the setState out of the effect's synchronous body
+      // (react-hooks/set-state-in-effect; the codebase's convention).
+      await Promise.resolve();
+      if (!alive) return;
+      setLoading(true);
+      try {
+        const response = await api.getPaymentMethods();
         if (!alive) return;
         setMethods(response.methods);
         setCodEnabled(response.codEnabled);
         setError(null);
-      })
-      .catch(() => {
+      } catch {
         if (!alive) return;
         setError("We could not load the payment methods. Check your connection and try again.");
-      })
-      .finally(() => {
+      } finally {
         if (alive) setLoading(false);
-      });
+      }
+    })();
     return () => {
       alive = false;
     };

@@ -131,11 +131,22 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
   // falls back to the first method it still offers instead of promising a
   // payment the backend would refuse.
   useEffect(() => {
-    if (paymentMethods.loading || paymentMethods.error !== null) return;
-    const offered = paymentMethods.methods.filter((method) => method.enabled);
-    if (offered.length === 0) return;
-    if (offered.some((method) => method.id === paymentMethod)) return;
-    setPaymentMethod(offered[0]!.id);
+    let alive = true;
+    void (async () => {
+      // The await keeps the setState out of the effect's synchronous body
+      // (react-hooks/set-state-in-effect; the same convention the draft
+      // restore below uses).
+      await Promise.resolve();
+      if (!alive) return;
+      if (paymentMethods.loading || paymentMethods.error !== null) return;
+      const offered = paymentMethods.methods.filter((method) => method.enabled);
+      if (offered.length === 0) return;
+      if (offered.some((method) => method.id === paymentMethod)) return;
+      setPaymentMethod(offered[0]!.id);
+    })();
+    return () => {
+      alive = false;
+    };
   }, [
     paymentMethods.loading,
     paymentMethods.error,
