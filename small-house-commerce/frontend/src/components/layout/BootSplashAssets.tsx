@@ -23,9 +23,11 @@ html[data-splash-done] #boot-splash{animation:none;opacity:0;pointer-events:none
 .boot-splash-bar{background:#244c3c;animation:bootBar 1.1s ease-in-out infinite}
 @keyframes bootBar{0%{transform:translateX(-120%)}100%{transform:translateX(320%)}}
 .boot-nav-loader{opacity:0;animation:bootSplashIn .18s ease-out .2s forwards}
+.boot-nav-loader-bar{display:block;width:56px;height:2px;border-radius:9999px;background:var(--color-cta);animation:bootNavPulse 1.2s ease-in-out infinite}
+@keyframes bootNavPulse{0%,100%{opacity:.2;transform:scaleX(.6)}50%{opacity:.7;transform:scaleX(1)}}
 @media (prefers-reduced-motion:reduce){
   #boot-splash{animation-duration:.01s;animation-delay:0s;transition:none}
-  .boot-splash-pulse,.boot-splash-bar,.boot-nav-loader{animation:none;opacity:1}
+  .boot-splash-pulse,.boot-splash-bar,.boot-nav-loader,.boot-nav-loader-bar{animation:none;opacity:1}
 }
 `;
 

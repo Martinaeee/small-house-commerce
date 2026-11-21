@@ -7,6 +7,11 @@ Every `docker compose up -d frontend` recreates the container and drops
 collects every `/_next/image` URL they reference (src and srcset alike) and
 requests them ahead of real traffic.
 
+Rendered HTML does not list every rendition a PDP can request: the detail
+deck only renders its first modules eagerly, so the remaining detail images
+have no `/_next/image` URL in the document. Those are built from the
+product API instead, at the widths real traffic requests.
+
 Read-only: it only GETs public pages and images. No database or container
 writes. Safe to run repeatedly; already-cached URLs return `HIT` and cost
 almost nothing.
@@ -16,7 +21,8 @@ Usage (on the server, after `up -d frontend` is healthy):
 
 Environment:
     BASE              storefront origin (default https://luwag.shop)
-    PRODUCT_LIMIT     how many product pages to warm (default 24 = every active product)
+    PRODUCT_LIMIT     how many product pages to warm (default 48, the API cap
+                      and every active product today)
     CONCURRENCY       parallel image requests (default 2, keep the box calm)
     MAX_IMAGES        safety cap on distinct image URLs (default 3000)
     TIMEOUT           per-request timeout in seconds (default 60)
@@ -29,11 +35,12 @@ import re
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 
 BASE = os.environ.get("BASE", "https://luwag.shop").rstrip("/")
-PRODUCT_LIMIT = int(os.environ.get("PRODUCT_LIMIT", "24"))
+PRODUCT_LIMIT = int(os.environ.get("PRODUCT_LIMIT", "48"))
 CONCURRENCY = int(os.environ.get("CONCURRENCY", "3"))
 MAX_IMAGES = int(os.environ.get("MAX_IMAGES", "3000"))
 TIMEOUT = int(os.environ.get("TIMEOUT", "60"))
@@ -48,8 +55,21 @@ BROWSER_IMAGE_ACCEPT = "image/avif,image/webp,image/apng,image/*,*/*;q=0.8"
 # meant the busiest variants still missed for the first visitor after a deploy.
 SKIP_WIDTHS = {"16", "32", "48", "64", "128"}
 
+# The widths real traffic requests (measured in the production access log:
+# 1280 dominates, then 96, 640, 1440, 384). Used when building optimizer URLs
+# from the product API instead of from rendered HTML.
+OPTIMIZER_WIDTHS = ("96", "384", "640", "1280", "1440")
+
 IMAGE_RE = re.compile(r'/_next/image\?[^"\'<>\s\\]+')
 PRODUCT_RE = re.compile(r'href="(/products/[^"?#]+)')
+
+
+def optimizer_url(src: str, width: str) -> str:
+    """The URL the storefront itself would request for this upload."""
+    return "/_next/image?url=%s&w=%s&q=75" % (
+        urllib.parse.quote(src, safe=""),
+        width,
+    )
 
 
 def http_get(path: str, accept: str = "text/html") -> tuple[int, bytes, dict]:
@@ -109,6 +129,42 @@ def collect_image_urls(pages: list[str]) -> tuple[set[str], list[str]]:
     return urls, failed_pages
 
 
+def collect_api_media_urls(pages: list[str]) -> tuple[set[str], list[str]]:
+    """Optimizer URLs for every product image a PDP can show.
+
+    The detail deck renders only its first few modules eagerly, so the rest
+    of the detail images never appear as `/_next/image` URLs in the HTML —
+    scraping alone missed 9 of 13 detail images on a freshly published
+    product, and the first phone paid the cold transforms for them. The
+    product API carries the full list, so build the renditions from it.
+    """
+    urls: set[str] = set()
+    warnings: list[str] = []
+    for page in pages:
+        if not page.startswith("/products/"):
+            continue
+        status, body, _ = http_get_with_retry("/api/v1/storefront" + page)
+        if status != 200:
+            warnings.append(f"api {page} -> {status or 'error'}")
+            continue
+        try:
+            product = json.loads(body)
+        except ValueError:
+            warnings.append(f"api {page} -> invalid JSON")
+            continue
+        for row in list(product.get("images") or []) + list(
+            product.get("detailBlocks") or []
+        ):
+            if row.get("type") != "IMAGE":
+                continue
+            src = (row.get("url") or "").strip()
+            if not src.startswith("/uploads/"):
+                continue
+            for width in OPTIMIZER_WIDTHS:
+                urls.add(optimizer_url(src, width))
+    return urls, warnings
+
+
 def warm(url: str) -> tuple[str, str, int, int]:
     started = time.time()
     status, body, headers = http_get_with_retry(url, accept=BROWSER_IMAGE_ACCEPT)
@@ -123,11 +179,15 @@ def main() -> int:
 
     pages = collect_pages()
     urls, failed_pages = collect_image_urls(pages)
+    api_urls, api_warnings = collect_api_media_urls(pages)
+    urls |= api_urls
     if len(urls) > MAX_IMAGES:
         urls = set(list(urls)[:MAX_IMAGES])
     print(f"warm: pages={len(pages)} images={len(urls)}")
     for failure in failed_pages:
         print(f"warm: page failed {failure}")
+    for warning in api_warnings:
+        print(f"warm: api warning {warning}")
 
     hits = misses = errors = 0
     slowest: list[tuple[int, str]] = []

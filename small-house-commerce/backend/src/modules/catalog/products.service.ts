@@ -39,6 +39,10 @@ import type { AdminProduct } from './catalog-graph.service.js';
 import { CatalogGraphVersionRequiredError } from './dto/catalog-graph.dto.js';
 import { CACHE_TAGS, revalidateCache } from '../../common/revalidation.js';
 import {
+  collectProductMediaUrls,
+  warmProductImages,
+} from '../../common/image-warming.js';
+import {
   ProductMediaResolver,
   isMediaEligibleVariant,
   type MediaScopeRequest,
@@ -681,6 +685,24 @@ export class ProductsService {
     }
   }
 
+  /**
+   * Pre-warm the image optimizer for a published product's media.
+   *
+   * Fire-and-forget on purpose: the admin save must not wait on ~100 sharp
+   * transforms, and a warm failure only means the first shopper pays the
+   * cold cost this release was meant to remove.
+   */
+  private warmImagesForProduct(product: {
+    status?: string | null;
+    images?: ReadonlyArray<{ url: string; type: string }> | null;
+    detailBlocks?: ReadonlyArray<{ url: string; type: string }> | null;
+  }): void {
+    if (product.status !== 'ACTIVE') return;
+    const urls = collectProductMediaUrls(product);
+    if (urls.length === 0) return;
+    void warmProductImages(urls);
+  }
+
   async create(input: CreateProductInput) {
     await this.ensureCategory(input.categoryId);
     const images = prepareLegacySceneImages([], input.images);
@@ -769,6 +791,7 @@ export class ProductsService {
         return saved;
       });
       await revalidateCache([CACHE_TAGS.STOREFRONT]);
+      this.warmImagesForProduct(created);
       const [enriched] = await this.withFaq(await this.withStock([created]));
       return enriched;
     } catch (error) {
@@ -863,6 +886,13 @@ export class ProductsService {
               }
             },
           );
+        // `media` carries the option-value and variant scopes too, so a
+        // shopper who selects that variant also finds those renditions warm.
+        this.warmImagesForProduct({
+          status: graphUpdated.status,
+          images: graphUpdated.media,
+          detailBlocks: graphUpdated.detailBlocks,
+        });
         const [enriched] = await this.withFaq(
           await this.withStock([graphUpdated]),
         );
@@ -905,6 +935,15 @@ export class ProductsService {
       });
 
       await revalidateCache([CACHE_TAGS.STOREFRONT]);
+      // Only a save that touched media or the publish switch can leave the
+      // optimizer without renditions for this product; a price edit cannot.
+      if (
+        input.images !== undefined ||
+        input.detailBlocks !== undefined ||
+        input.status !== undefined
+      ) {
+        this.warmImagesForProduct(updated);
+      }
       // Same shape as get(): the edit form adopts this response as its new
       // server truth, so a missing onHand would re-render the stock box as
       // "undefined" and block the next save client-side. A scalar-only save
@@ -1191,6 +1230,19 @@ export class ProductsService {
         this.rethrowKnown(error);
       }
       await revalidateCache([CACHE_TAGS.STOREFRONT]);
+      if (status === 'ACTIVE') {
+        // The list's bulk publish usually flips products the optimizer has
+        // never seen (a draft prepared days earlier), so warm their media.
+        const published = await this.prisma.product.findMany({
+          where: { id: { in: foundIds } },
+          select: {
+            status: true,
+            images: { select: { url: true, type: true } },
+            detailBlocks: { select: { url: true, type: true } },
+          },
+        });
+        for (const row of published) this.warmImagesForProduct(row);
+      }
     }
     return { updated: foundIds.length, notFound: ids.length - foundIds.length };
   }
