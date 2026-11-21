@@ -112,6 +112,12 @@ describe('reconcile', () => {
       paymentStatus: 'PAID',
       attemptStatus: 'SUCCEEDED',
     });
+    // The admin drawer's "last query" must show this query too.
+    expect(result.lastQueryAt).toBeInstanceOf(Date);
+    const queriedAt = tx.sunratePaymentAttempt.update.mock.calls.some(
+      (call) => (call[0] as { data: Record<string, unknown> }).data.lastQueryAt instanceof Date,
+    );
+    expect(queriedAt).toBe(true);
     expect(tx.order.update).toHaveBeenCalledWith({
       where: { id: 'order-1' },
       data: { paymentStatus: 'PAID' },

@@ -110,23 +110,45 @@ public base URL is missing.
   imported `AuthModule`, so the backend would not boot with the admin
   payment controllers registered (`90ba8336`).
 
+## Sandbox evidence (2026-11-21, real SUNRATE test gateway)
+
+- **Signature verified by the gateway**: `createorder`/`order_query` answers
+  were parameter errors (`U5`), never signature errors (`U2`); the SHA256
+  rule as implemented is accepted.
+- **GCash end-to-end paid**: a real test order (`PH100028`, ₱599) was placed
+  through the API, paid in the Alipay **simulation wallet** (account from
+  the vendor), and reconciled with `order_query` → `respCode 00`, transID,
+  `gwTime`; the state machine applied it: order `PAID`, payment `PAID`
+  (`paidAt` = the gateway time), attempt `SUCCEEDED` with the transID saved.
+- **Fixed from sandbox findings** (`786831d6`): the wallet request now
+  sends `tradeFrom`, `detailInfo`, `osType`, `userIP`, `userID` (the gateway
+  rejected the bare request parameter by parameter); the simulation-wallet
+  host `psp.ac.alipay.com` is on the pay-url allow-list; a successful
+  reconcile now records `lastQueryAt`.
+- **Notification inbound not exercised**: the sandbox `backURL` pointed at
+  localhost, so the gateway could not deliver a notification; the payment
+  was confirmed through the query path (one of the two sources the design
+  treats as authoritative). Production still needs the reported public
+  backURL.
+
 ## Known unverified items (external dependencies)
 
 1. **Signature key attachment** — the signing key used is the one in the
    emailed documentation (`SUNRATE_signatureKey…txt` = the email's Secret
-   key). The contract's own key attachment is not verified.
-2. **Sandbox accounts** — the GCash/BPI test credentials from 周涛 have not
-   arrived; no real gateway transaction (card, GCash, BPI) has been made. The
-   client was exercised against the official examples and local fakes only.
+   key). The gateway accepted signatures made with it in the test
+   environment; the contract's own key attachment is still not verified.
+2. **Card and BPI real payments** — GCash is now proven end to end in the
+   sandbox; a real card payment (hosted cashier / SDK) and a real BPI
+   payment have not been made yet.
 3. **Qianyi prepaid enum** — the paid/prepaid payment type Qianyi expects
    for online orders is not confirmed. Until it is, PAID online orders are
    held back (`QIANYI_PREPAID_MAPPING_UNVERIFIED`).
 4. **backURL reporting** — production requires reporting the notification
    URL (`<PAYMENTS_PUBLIC_BASE_URL>/api/v1/payments/sunrate/notify`) to
    SUNRATE in advance. Not done yet.
-5. **Pay-url allow-list** — the wallet cashier host family
-   (`*.xunhuiacq.com`, `*.sunrate.com`) is taken from the official example;
-   sandbox evidence may widen or narrow it.
+5. **Pay-url allow-list** — now includes `psp.ac.alipay.com` (sandbox
+   simulation wallet). The production wallet cashier host is still unseen;
+   watch the first production payment.
 6. **Card brand mapping** — `cardBrand` stores the notification's
    `paymentBrand` for every channel; the notification never carries a card
    number, so `cardLast4` stays empty until the channel actually returns one.

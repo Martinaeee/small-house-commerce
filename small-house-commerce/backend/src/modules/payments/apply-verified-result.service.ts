@@ -165,6 +165,12 @@ export class ApplyVerifiedResultService {
         transType: query.raw.transType,
         source: 'QUERY',
       });
+      // A successful query is still a query: the admin drawer's "last
+      // query" line must show it.
+      await this.prisma.sunratePaymentAttempt.update({
+        where: { id: attempt.id },
+        data: { lastQueryAt: new Date() },
+      });
     } else {
       await this.prisma.sunratePaymentAttempt.update({
         where: { id: attempt.id },
