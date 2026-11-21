@@ -47,6 +47,14 @@ const errorReason = (error: unknown): string => {
   return 'unknown';
 };
 
+/** The device class the gateway's risk check expects; never invented. */
+const osTypeOf = (userAgent: string | null | undefined): 'IOS' | 'ANDROID' | 'WINDOWS' => {
+  const ua = String(userAgent ?? '').toLowerCase();
+  if (/iphone|ipad|ipod|ios/.test(ua)) return 'IOS';
+  if (/android/.test(ua)) return 'ANDROID';
+  return 'WINDOWS';
+};
+
 /**
  * Drives the SUNRATE payment session for an order (design 2026-11-20).
  *
@@ -73,7 +81,7 @@ export class PaymentsService {
    */
   async initiateGatewaySession(
     orderNumber: string,
-    options: { userIp?: string | null } = {},
+    options: { userIp?: string | null; userAgent?: string | null } = {},
   ): Promise<GatewaySession> {
     const attempt = await this.readAttempt(orderNumber);
     if (!attempt) throw new NotFoundException('This order has no payment attempt');
@@ -122,6 +130,9 @@ export class PaymentsService {
               paymentMethod: attempt.channel as 'gcash' | 'bpi',
               frontURL,
               backURL,
+              userIP: options.userIp || '127.0.0.1',
+              userID: attempt.orderId,
+              osType: osTypeOf(options.userAgent),
             });
     } catch (error) {
       throw await this.failInitiation(attempt, orderNumber, error);

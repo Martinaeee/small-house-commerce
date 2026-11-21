@@ -140,6 +140,7 @@ export class StorefrontOrdersController {
       // order later on the payment return path.
       const session = await this.payments.initiateGatewaySession(orderNumber, {
         userIp: checkoutRequestMeta(request).clientIp,
+        userAgent: request.headers['user-agent'] ?? null,
       });
       response.cookie(
         PAYMENT_CAPABILITY_COOKIE,

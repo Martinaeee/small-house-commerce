@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { SunrateClient } from './sunrate.client.js';
+import { SunrateClient, isOfficialSunratePayUrl } from './sunrate.client.js';
 import { signFields } from './sunrate.signature.js';
 import type { SunrateConfig } from './sunrate.config.js';
 
@@ -54,17 +54,35 @@ describe('SunrateClient', () => {
     expect(JSON.stringify(captured.body)).not.toContain(cfg.signKey);
   });
 
-  it('creates a wallet order for gcash with consumerArea PH on createorder', async () => {
+  it('creates a wallet order with the fields the gateway requires', async () => {
     const client = clientWith((url, init) => {
       (clientWith as unknown as { _captured?: unknown })._captured = { url, body: JSON.parse(init.body) };
-      return { respCode: '00', parameter: { payUrl: 'https://gw.gcash/x' } };
+      return { respCode: '00', parameter: { payUrl: 'https://psp.ac.alipay.com/page/simulation-wallet/acwallet/x' } };
     });
-    const out = await client.createWalletOrder({ ...cardInput, detailInfo: undefined, paymentMethod: 'gcash' });
-    expect(out.payUrl).toBe('https://gw.gcash/x');
+    // The test gateway rejected the bare request with "tradeFrom is required",
+    // then detailInfo, osType, userIP and userID: every one of them is sent.
+    const out = await client.createWalletOrder({
+      orderNum: 'AT-0001',
+      amount: '100.00',
+      currency: 'PHP',
+      paymentMethod: 'gcash',
+      frontURL: cardInput.frontURL,
+      backURL: cardInput.backURL,
+      userIP: '1.2.3.4',
+      userID: 'order-1',
+      osType: 'IOS',
+    });
+    expect(out.payUrl).toContain('simulation-wallet');
     const captured = (clientWith as unknown as { _captured?: { url: string; body: Record<string, string> } })._captured!;
     expect(captured.url).toBe('https://test-api.xunhuiacq.com/api/v5/createorder');
     expect(captured.body.paymentMethod).toBe('gcash');
     expect(captured.body.consumerArea).toBe('PH');
+    expect(captured.body.tradeFrom).toBe('H5');
+    expect(typeof captured.body.detailInfo).toBe('string');
+    expect(Buffer.from(captured.body.detailInfo!, 'base64').toString('utf8')).toContain('LUWAG');
+    expect(captured.body.osType).toBe('IOS');
+    expect(captured.body.userIP).toBe('1.2.3.4');
+    expect(captured.body.userID).toBe('order-1');
     expect(captured.body.signature).toBe(signFields(captured.body, cfg.signKey));
   });
 
@@ -95,5 +113,22 @@ describe('SunrateClient', () => {
     await client.createCardCashier(cardInput);
     const captured = (clientWith as unknown as { _captured?: { body: Record<string, string> } })._captured!;
     expect(Object.values(captured.body)).not.toContain(cfg.signKey);
+  });
+});
+
+describe('isOfficialSunratePayUrl', () => {
+  it('accepts the simulation wallet the test gateway answers with', () => {
+    // Sandbox evidence 2026-11-21: createorder answers with the Alipay
+    // simulation wallet for GCash.
+    expect(
+      isOfficialSunratePayUrl(
+        'https://psp.ac.alipay.com/page/simulation-wallet/acwallet/alipayconnectcode.html?code=x&pspName=GCASH',
+      ),
+    ).toBe(true);
+  });
+
+  it('keeps rejecting a foreign host', () => {
+    expect(isOfficialSunratePayUrl('https://evil.example.com/pay')).toBe(false);
+    expect(isOfficialSunratePayUrl('http://psp.ac.alipay.com/x')).toBe(false);
   });
 });

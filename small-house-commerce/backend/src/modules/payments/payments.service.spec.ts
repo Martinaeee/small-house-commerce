@@ -152,6 +152,35 @@ describe('PaymentsService.initiateGatewaySession', () => {
     expect(updateArgs.data.status).toBe('UNKNOWN');
   });
 
+  it('carries the shopper address and device into the wallet request', async () => {
+    const bodies: Array<Record<string, string>> = [];
+    const fetchImpl = (async (_url: string, init: { body: string }) => {
+      bodies.push(JSON.parse(init.body) as Record<string, string>);
+      return new Response(
+        JSON.stringify({
+          respCode: '00',
+          parameter: {
+            payUrl: 'https://psp.ac.alipay.com/page/simulation-wallet/acwallet/x',
+          },
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    }) as unknown as typeof fetch;
+    const { service } = harness({ fetchImpl, attempt: { channel: 'gcash' } });
+
+    await service.initiateGatewaySession('PH100030', {
+      userIp: '1.2.3.4',
+      userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) Mobile',
+    });
+
+    expect(bodies[0]).toMatchObject({
+      tradeFrom: 'H5',
+      userIP: '1.2.3.4',
+      userID: 'order-1',
+      osType: 'IOS',
+    });
+  });
+
   it('returns the stored session instead of calling the gateway twice', async () => {
     const fetchImpl = vi.fn();
     const { service } = harness({

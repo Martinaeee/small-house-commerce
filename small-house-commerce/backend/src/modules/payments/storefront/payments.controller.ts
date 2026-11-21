@@ -11,6 +11,7 @@ import type { Request, Response } from 'express';
 import { PrismaService } from '../../../prisma/prisma.service.js';
 import { Prisma } from '../../../generated/prisma/client.js';
 import { Throttle, ThrottleGuard } from '../../../common/throttle.guard.js';
+import { checkoutRequestMeta } from '../../meta-capi/request-meta.js';
 import { readCookie, requestIsSecure } from '../../marketing/marketing-touch-cookies.js';
 import {
   PAYMENT_CAPABILITY_COOKIE,
@@ -100,7 +101,10 @@ export class StorefrontPaymentsController {
       },
     });
 
-    const session = await this.payments.initiateGatewaySession(order.orderNumber);
+    const session = await this.payments.initiateGatewaySession(order.orderNumber, {
+      userIp: checkoutRequestMeta(request).clientIp,
+      userAgent: request.headers['user-agent'] ?? null,
+    });
     response.cookie(
       PAYMENT_CAPABILITY_COOKIE,
       this.capability.issue(order.orderNumber, session.attemptId),

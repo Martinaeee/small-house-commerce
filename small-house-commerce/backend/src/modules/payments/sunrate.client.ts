@@ -42,6 +42,12 @@ export interface WalletOrderInput {
   paymentMethod: 'gcash' | 'bpi';
   frontURL: string;
   backURL: string;
+  /** The shopper's address, as the gateway's risk check wants it. */
+  userIP: string;
+  /** The order id, so the gateway can group a shopper's attempts. */
+  userID: string;
+  /** IOS | ANDROID | WINDOWS — never invented by the gateway. */
+  osType: string;
 }
 
 export interface OrderQueryInput {
@@ -104,12 +110,24 @@ export class SunrateClient {
     const body = this.signedRequest({
       paymentMethod: input.paymentMethod,
       consumerArea: 'PH',
+      // The gateway rejects a wallet order without these (sandbox,
+      // 2026-11-21: "tradeFrom is required", then detailInfo, osType,
+      // userIP and userID in turn).
+      tradeFrom: 'H5',
       orderNum: input.orderNum,
       orderAmount: input.amount,
       orderCurrency: input.currency,
       frontURL: input.frontURL,
       backURL: input.backURL,
       goodsInfo: 'LUWAG order',
+      detailInfo: Buffer.from(
+        JSON.stringify([
+          { goods_id: '1', goods_name: 'LUWAG order', quantity: '1', price: input.amount },
+        ]),
+      ).toString('base64'),
+      osType: input.osType,
+      userIP: input.userIP,
+      userID: input.userID,
     });
     const result = await this.post('/api/v5/createorder', body);
     const payUrl = stringField(result.parameter, 'payUrl');
@@ -181,7 +199,10 @@ export const isOfficialSunratePayUrl = (url: string): boolean => {
         // wallet example answers with a cashier on the acquirer's own test
         // domain (test.xunhuiacq.com), so that family is trusted too.
         parsed.hostname.endsWith('.sunrate.com') ||
-        parsed.hostname.endsWith('.xunhuiacq.com'))
+        parsed.hostname.endsWith('.xunhuiacq.com') ||
+        // Sandbox evidence 2026-11-21: the test gateway answers a GCash
+        // wallet order with the Alipay simulation wallet on this host.
+        parsed.hostname === 'psp.ac.alipay.com')
     );
   } catch {
     return false;
