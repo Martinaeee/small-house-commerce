@@ -120,11 +120,23 @@ public base URL is missing.
   the vendor), and reconciled with `order_query` → `respCode 00`, transID,
   `gwTime`; the state machine applied it: order `PAID`, payment `PAID`
   (`paidAt` = the gateway time), attempt `SUCCEEDED` with the transID saved.
-- **Fixed from sandbox findings** (`786831d6`): the wallet request now
-  sends `tradeFrom`, `detailInfo`, `osType`, `userIP`, `userID` (the gateway
-  rejected the bare request parameter by parameter); the simulation-wallet
-  host `psp.ac.alipay.com` is on the pay-url allow-list; a successful
-  reconcile now records `lastQueryAt`.
+- **BPI end-to-end paid** (`PH100033`): the Alipay+ authorization page and
+  the BPI bank simulator (test account, OTP) completed the payment; the
+  return carried `respCode 00` / transID, and the query reconciled it to
+  `PAID`.
+- **Card end-to-end paid through the real UI** (`PH100034`): the checkout
+  form → confirm page → payment return page mounted the SUNRATE card SDK
+  with the paySession (test card `4111…1111`), the payment succeeded
+  (`paymentBrand visa`, transID), and the page flipped from
+  "Checking your payment…" to "Payment received" by polling the status
+  endpoint — no reload, no URL parameter trusted.
+- **Fixed from sandbox findings** (`786831d6`, follow-ups): the wallet
+  request now sends `tradeFrom`, `detailInfo`, `osType`, `userIP`, `userID`
+  (the gateway rejected the bare request parameter by parameter); the card
+  cashier also requires `osType`; the sandbox pay-url hosts
+  `psp.ac.alipay.com` (GCash simulation wallet) and `g.alipayplus.com`
+  (BPI Alipay+ authorization) are on the allow-list; a successful reconcile
+  records `lastQueryAt`.
 - **Notification inbound not exercised**: the sandbox `backURL` pointed at
   localhost, so the gateway could not deliver a notification; the payment
   was confirmed through the query path (one of the two sources the design
@@ -137,18 +149,21 @@ public base URL is missing.
    emailed documentation (`SUNRATE_signatureKey…txt` = the email's Secret
    key). The gateway accepted signatures made with it in the test
    environment; the contract's own key attachment is still not verified.
-2. **Card and BPI real payments** — GCash is now proven end to end in the
-   sandbox; a real card payment (hosted cashier / SDK) and a real BPI
-   payment have not been made yet.
+2. **All three online methods are sandbox-proven** (GCash, BPI, card). What
+   is still unseen is the *production* wallet host: the test gateway answers
+   with Alipay simulation hosts, and the production GCash/BPI cashier host
+   will differ — watch the first production payment.
 3. **Qianyi prepaid enum** — the paid/prepaid payment type Qianyi expects
    for online orders is not confirmed. Until it is, PAID online orders are
    held back (`QIANYI_PREPAID_MAPPING_UNVERIFIED`).
 4. **backURL reporting** — production requires reporting the notification
    URL (`<PAYMENTS_PUBLIC_BASE_URL>/api/v1/payments/sunrate/notify`) to
    SUNRATE in advance. Not done yet.
-5. **Pay-url allow-list** — now includes `psp.ac.alipay.com` (sandbox
-   simulation wallet). The production wallet cashier host is still unseen;
-   watch the first production payment.
+5. **Notification inbound not exercised** — every sandbox payment was
+   confirmed through `order_query` (the design treats query and notification
+   as equally authoritative), because the sandbox backURL points at
+   localhost. The notify endpoint is covered by unit tests and will first
+   see real traffic in production.
 6. **Card brand mapping** — `cardBrand` stores the notification's
    `paymentBrand` for every channel; the notification never carries a card
    number, so `cardLast4` stays empty until the channel actually returns one.

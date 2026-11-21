@@ -31,6 +31,8 @@ export interface CardCashierInput {
   detailInfo: string;
   userIP: string;
   userID: string;
+  /** IOS | ANDROID | WINDOWS — createcashier rejects a request without it. */
+  osType: string;
   frontURL: string;
   backURL: string;
 }
@@ -99,6 +101,7 @@ export class SunrateClient {
       detailInfo: input.detailInfo,
       userIP: input.userIP,
       userID: input.userID,
+      osType: input.osType,
     });
     const result = await this.post('/api/v5/createcashier', body);
     const paySession = stringField(result.parameter, 'paySession');
@@ -201,8 +204,11 @@ export const isOfficialSunratePayUrl = (url: string): boolean => {
         parsed.hostname.endsWith('.sunrate.com') ||
         parsed.hostname.endsWith('.xunhuiacq.com') ||
         // Sandbox evidence 2026-11-21: the test gateway answers a GCash
-        // wallet order with the Alipay simulation wallet on this host.
-        parsed.hostname === 'psp.ac.alipay.com')
+        // wallet order with the Alipay simulation wallet on psp.ac.alipay.com
+        // and a BPI order with the Alipay+ authorization page on
+        // g.alipayplus.com.
+        parsed.hostname === 'psp.ac.alipay.com' ||
+        parsed.hostname === 'g.alipayplus.com')
     );
   } catch {
     return false;

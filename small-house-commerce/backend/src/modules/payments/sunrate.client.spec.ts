@@ -40,7 +40,7 @@ const cardInput = {
 describe('SunrateClient', () => {
   it('builds a signed card cashier request bound to the official host', async () => {
     const client = clientWith(capture);
-    const out = await client.createCardCashier(cardInput);
+    const out = await client.createCardCashier({ ...cardInput, osType: 'IOS' });
     expect(out.paySession).toBe('PS-1');
     const captured = (clientWith as unknown as { _captured?: { url: string; body: Record<string, string> } })._captured!;
     expect(captured.url).toBe('https://test-api.xunhuiacq.com/api/v5/createcashier');
@@ -52,6 +52,8 @@ describe('SunrateClient', () => {
     expect(captured.body.signType).toBe('SHA256');
     expect(captured.body.signature).toBe(signFields(captured.body, cfg.signKey));
     expect(JSON.stringify(captured.body)).not.toContain(cfg.signKey);
+    // Sandbox 2026-11-21: createcashier rejects a request without osType.
+    expect(captured.body.osType).toBe('IOS');
   });
 
   it('creates a wallet order with the fields the gateway requires', async () => {
@@ -123,6 +125,16 @@ describe('isOfficialSunratePayUrl', () => {
     expect(
       isOfficialSunratePayUrl(
         'https://psp.ac.alipay.com/page/simulation-wallet/acwallet/alipayconnectcode.html?code=x&pspName=GCASH',
+      ),
+    ).toBe(true);
+  });
+
+  it('accepts the Alipay+ authorization page the BPI wallet answers with', () => {
+    // Sandbox evidence 2026-11-21: bpi createorder answers with the Alipay+
+    // linker on g.alipayplus.com.
+    expect(
+      isOfficialSunratePayUrl(
+        'https://g.alipayplus.com/page/aplus-linker/acwallet/authorization.html?scopes=X',
       ),
     ).toBe(true);
   });

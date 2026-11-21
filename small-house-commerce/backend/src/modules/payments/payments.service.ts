@@ -118,8 +118,9 @@ export class PaymentsService {
               detailInfo: Buffer.from(
                 JSON.stringify([{ goods_name: 'LUWAG order', quantity: '1' }]),
               ).toString('base64'),
-              userIP: options.userIp ?? '',
+              userIP: options.userIp || '127.0.0.1',
               userID: attempt.orderId,
+              osType: osTypeOf(options.userAgent),
               frontURL,
               backURL,
             })
