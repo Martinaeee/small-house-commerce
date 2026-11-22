@@ -228,6 +228,57 @@ describe("AdminShell hidden permission-backed destinations", () => {
   });
 });
 
+describe("AdminShell Storefront Health group", () => {
+  beforeEach(() => {
+    shellState.pathname = "/admin";
+    shellState.permissions = ["OBSERVABILITY_VIEW"];
+    shellState.replace.mockReset();
+    shellState.logout.mockReset();
+  });
+
+  function desktopNav(): HTMLElement {
+    return screen.getByRole("navigation", { name: "Admin navigation" });
+  }
+
+  it("keeps the health modules collapsed under the overview row until expanded", () => {
+    renderShell();
+
+    expect(within(desktopNav()).queryByText("nav_availability")).toBeNull();
+
+    fireEvent.click(
+      within(desktopNav()).getByRole("button", { name: "nav_observability" }),
+    );
+
+    expect(
+      within(desktopNav()).getByRole("link", { name: "nav_availability" }),
+    ).toHaveAttribute("href", "/admin/observability/availability");
+    expect(
+      within(desktopNav()).getByRole("link", { name: "nav_alerts" }),
+    ).toHaveAttribute("href", "/admin/observability/alerts");
+  });
+
+  it("opens automatically when a health module is the active route", () => {
+    shellState.pathname = "/admin/observability/availability";
+    renderShell();
+
+    expect(
+      within(desktopNav()).getByRole("link", { name: "nav_availability" }),
+    ).toHaveAttribute("aria-current", "page");
+    expect(
+      within(desktopNav()).getByRole("link", { name: "nav_observability" }),
+    ).not.toHaveAttribute("aria-current");
+  });
+
+  it("hides the health modules from an account without OBSERVABILITY_VIEW", () => {
+    shellState.permissions = ["ORDER_VIEW_ALL"];
+    renderShell();
+
+    expect(
+      within(desktopNav()).queryByRole("link", { name: "nav_observability" }),
+    ).not.toBeInTheDocument();
+  });
+});
+
 describe("AdminShell website navigation group", () => {
   beforeEach(() => {
     shellState.pathname = "/admin/homepage";

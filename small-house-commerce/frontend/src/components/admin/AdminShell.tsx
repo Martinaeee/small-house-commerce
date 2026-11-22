@@ -119,6 +119,47 @@ const NAV_ITEMS: NavEntry[] = [
     permission: "PRODUCT_MANAGE",
   },
   {
+    kind: "item",
+    href: "/admin/observability",
+    labelKey: "nav_observability",
+    permission: "OBSERVABILITY_VIEW",
+    exact: true,
+    // The health modules collapse under their overview row, the same way the
+    // access diagnostics sit under system status.
+    children: [
+      {
+        kind: "item",
+        href: "/admin/observability/availability",
+        labelKey: "nav_availability",
+        permission: "OBSERVABILITY_VIEW",
+      },
+      {
+        kind: "item",
+        href: "/admin/observability/page-experience",
+        labelKey: "nav_page_experience",
+        permission: "OBSERVABILITY_VIEW",
+      },
+      {
+        kind: "item",
+        href: "/admin/observability/api-checkout",
+        labelKey: "nav_api_checkout",
+        permission: "OBSERVABILITY_VIEW",
+      },
+      {
+        kind: "item",
+        href: "/admin/observability/journey",
+        labelKey: "nav_journey",
+        permission: "OBSERVABILITY_VIEW",
+      },
+      {
+        kind: "item",
+        href: "/admin/observability/alerts",
+        labelKey: "nav_alerts",
+        permission: "OBSERVABILITY_VIEW",
+      },
+    ],
+  },
+  {
     kind: "group",
     labelKey: "nav_group_website",
     permission: [
@@ -249,6 +290,12 @@ const NAV_ICON_PATHS: Record<string, string> = {
   "/admin/status": "M12 3a9 9 0 1 0 9 9h-9V3Zm3 0a9 9 0 0 1 6 6h-6V3Z",
   "/admin/marketing": "m3 9 17-6v18L3 15V9Zm4 7 2 6h4l-2-5",
   "/admin/newsletter": "M3 5h18v14H3V5Zm0 0 9 8 9-8",
+  "/admin/observability": "M4 13a8 8 0 0 1 16 0M4 13v3a1 1 0 0 0 1 1h2m8 -4a8 8 0 0 0 -8 0m0 0v3a1 1 0 0 0 1 1h1m6 0h1a1 1 0 0 0 1 -1v-3",
+  "/admin/observability/availability": "M12 21a9 9 0 1 0 0 -18a9 9 0 0 0 0 18M3.6 9h16.8M3.6 15h16.8M12 3c2.4 2.4 3.6 5.4 3.6 9s-1.2 6.6 -3.6 9c-2.4 -2.4 -3.6 -5.4 -3.6 -9S9.6 5.4 12 3",
+  "/admin/observability/page-experience": "M12 20a8 8 0 1 0 -8 -8M12 12l4 -4M12 20v.5",
+  "/admin/observability/api-checkout": "M8 4H6a2 2 0 0 0 -2 2v12a2 2 0 0 0 2 2h2M16 4h2a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-2M9 9h6M9 13h6M9 17h4",
+  "/admin/observability/journey": "M6 19a3 3 0 1 0 0 -6a3 3 0 0 0 0 6M18 11a3 3 0 1 0 0 -6a3 3 0 0 0 0 6M9 16h3a3 3 0 0 0 3 -3v-2",
+  "/admin/observability/alerts": "M12 4 3 20h18L12 4M12 10v5M12 18v.5",
 };
 
 function NavList({
@@ -315,13 +362,15 @@ function NavItemWithChildren({
     item.children?.some(
       (child) => pathname === child.href || pathname.startsWith(`${child.href}/`),
     ) ?? false;
-  const [open, setOpen] = useState(false);
+  // The disclosure follows the route: a child route opens the parent, and a
+  // manual toggle only applies to the route it was made on. Deriving the
+  // state during render keeps it in step with the route without an effect.
+  const [manual, setManual] = useState<{ pathname: string; open: boolean } | null>(null);
+  const open =
+    manual?.pathname === pathname ? manual.open : childActive;
 
-  // Entering a child route keeps the parent open so the active child stays
-  // visible; the user can still collapse it by hand afterwards.
-  useEffect(() => {
-    if (childActive) setOpen(true);
-  }, [childActive]);
+  const toggle = (): void =>
+    setManual({ pathname, open: !open });
 
   if (!item.children?.length) {
     return (
@@ -337,7 +386,7 @@ function NavItemWithChildren({
         </div>
         <button
           type="button"
-          onClick={() => setOpen((value) => !value)}
+          onClick={toggle}
           aria-expanded={open}
           aria-label={item.label}
           className="mr-1 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-admin-rail-muted transition-colors hover:bg-white/10 hover:text-white"
@@ -512,6 +561,9 @@ export function AdminShell({ children }: { children: ReactNode }) {
         kind: "item",
         href: entry.href,
         label: t(entry.labelKey),
+        // A parent row with children must not light up on its own child
+        // route; the child carries the active state instead.
+        exact: entry.exact,
         children: children.length > 0 ? children : undefined,
       });
       continue;
@@ -525,6 +577,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
         return {
           href: item.href,
           label: t(item.labelKey),
+          exact: item.exact,
           children: children.length > 0 ? children : undefined,
         };
       });
@@ -532,8 +585,12 @@ export function AdminShell({ children }: { children: ReactNode }) {
       navEntries.push({ kind: "group", label: t(entry.labelKey), items });
     }
   }
+  // Nested rows count as destinations too: the page title follows the most
+  // specific match, and the no-modules boundary sees them as reachable.
   const navItems = navEntries.flatMap((entry) =>
-    entry.kind === "item" ? [entry] : entry.items,
+    entry.kind === "item"
+      ? [entry, ...(entry.children ?? [])]
+      : entry.items.flatMap((item) => [item, ...(item.children ?? [])]),
   );
   const current = navItems.find((item) =>
     item.exact

@@ -1785,6 +1785,222 @@ function buildQuery(params: Record<string, string | number | undefined>): string
   return qs ? `?${qs}` : "";
 }
 
+export type ObsPointState = 'OK' | 'NO_DATA' | 'INCOMPLETE' | 'UNKNOWN';
+
+export interface ObsPoint {
+  day: string;
+  value: number | null;
+  state: ObsPointState;
+}
+
+export interface ObsSeries {
+  state: 'VALUE' | 'UNKNOWN';
+  unit: string;
+  points?: ObsPoint[];
+  note?: string;
+}
+
+export interface AdminHealthSection {
+  state: 'NO_DATA' | 'NOT_ENABLED' | 'VALUE' | 'UNKNOWN';
+  /** Real five-state health when the section has evaluated data. */
+  status?: 'OPERATIONAL' | 'DEGRADED' | 'DOWN' | 'UNKNOWN' | 'MAINTENANCE';
+  note?: string;
+}
+
+export interface AdminTelemetryActivity {
+  state: 'VALUE' | 'UNKNOWN';
+  lastEventAt?: string | null;
+  events24h?: number | null;
+  sources?: string[];
+  note: string;
+}
+
+export interface AdminStorefrontHealth {
+  status: 'OPERATIONAL' | 'DEGRADED' | 'DOWN' | 'UNKNOWN' | 'MAINTENANCE';
+  reason: string;
+  asOf: string;
+  sections: {
+    availability: AdminHealthSection;
+    issues: AdminHealthSection;
+    pageExperience: AdminHealthSection;
+    checkout: AdminHealthSection;
+  };
+  telemetryActivity: AdminTelemetryActivity;
+}
+
+export type ProbeCheck = 'PASS' | 'FAIL' | 'UNKNOWN';
+export type ProbeRouteStatus = 'OPERATIONAL' | 'DEGRADED' | 'DOWN' | 'UNKNOWN';
+
+export interface AdminProbeRoute {
+  key: string;
+  path: string;
+  dns: ProbeCheck;
+  tls: ProbeCheck;
+  http: ProbeCheck;
+  httpStatus: number | null;
+  latencyMs: number | null;
+  dom: ProbeCheck;
+  lastCheckedAt: string | null;
+  source: 'PROD' | 'EXTERNAL';
+  status: ProbeRouteStatus;
+}
+
+export interface AdminProbeRun {
+  runId: string;
+  route: string;
+  source: 'PROD' | 'EXTERNAL';
+  status: ProbeRouteStatus;
+  httpStatus: number | null;
+  latencyMs: number | null;
+  checkedAt: string;
+}
+
+export interface AdminUptimeDay {
+  day: string;
+  state: 'OK' | 'DEGRADED' | 'DOWN' | 'NO_DATA';
+  uptimePct: number | null;
+}
+
+export interface AdminProbeNode {
+  key: string;
+  label: string;
+  state: 'ONLINE' | 'STALE' | 'OFFLINE';
+  lastHeartbeatAt: string | null;
+}
+
+export interface AdminAvailabilityEdge {
+  available: boolean;
+  generatedAt: string | null;
+  stale: boolean;
+  requests: number | null;
+  errorRate5xx: number | null;
+  errorRate4xx: number | null;
+  slowestMs: number | null;
+  slowestPath: string | null;
+  imageRealHitRate: number | null;
+  note: string;
+}
+
+export interface AdminAvailabilityReport {
+  status: ProbeRouteStatus;
+  reason: string;
+  asOf: string;
+  routes: AdminProbeRoute[];
+  uptime7d: AdminUptimeDay[];
+  uptime30d: AdminUptimeDay[];
+  recentFailures: {
+    id: string;
+    route: string;
+    source: 'PROD' | 'EXTERNAL';
+    at: string;
+    httpStatus: number | null;
+    latencyMs: number | null;
+    recoveredAt: string | null;
+    note: string;
+  }[];
+  runs: AdminProbeRun[];
+  nodes: AdminProbeNode[];
+  edge: AdminAvailabilityEdge | null;
+}
+
+export type AdminAlertSeverity = 'P0' | 'P1' | 'P2';
+export type AdminAlertStatus = 'OPEN' | 'ACKNOWLEDGED' | 'CLOSED';
+
+export interface AdminAlertIssue {
+  id: string;
+  ruleCode: string;
+  fingerprint: string;
+  severity: AdminAlertSeverity;
+  status: AdminAlertStatus;
+  title: string;
+  detail: string;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  occurrences: number;
+  acknowledgedAt: string | null;
+  closedAt: string | null;
+  snoozedUntil: string | null;
+}
+
+export interface AdminAlertList {
+  issues: AdminAlertIssue[];
+  alertingEnabled: boolean;
+}
+
+export interface AdminApiRouteHealth {
+  routeGroup: string;
+  requests: number;
+  p50Ms: number;
+  p90Ms: number;
+  p95Ms: number;
+  serverErrors: number;
+  clientErrors: number;
+  slowRequests: number;
+  budgetMs: number;
+  lastAt: string | null;
+}
+
+export interface AdminCheckoutStep {
+  key: "begin_checkout" | "submit_attempt" | "submit_failed" | "purchase";
+  events: number;
+  sessions: number;
+}
+
+export interface AdminApiDiagnostics {
+  collector: { since: string; queued: number; dropped: number; lastFlushAt: string | null; writeFailed: boolean } | null;
+  state: "VALUE" | "NO_DATA" | "UNKNOWN";
+  note: string;
+  collecting: boolean;
+  sampleRate: number;
+  asOf: string;
+  windowMinutes: number;
+  lastSampleAt: string | null;
+  routes: AdminApiRouteHealth[];
+  checkout: {
+    steps: AdminCheckoutStep[];
+    failureReasons: { reason: string; count: number }[];
+  };
+  recentFailures: {
+    requestId: string;
+    routeGroup: string;
+    method: string;
+    path: string;
+    status: number;
+    durationMs: number;
+    at: string;
+  }[];
+}
+
+export type AdminRequestCorrelation =
+  | "CORRELATED"
+  | "SERVER_SAMPLE_DROPPED"
+  | "SERVER_LOG_MISSING"
+  | "NOT_RECEIVED_CONFIRMED"
+  | "UNKNOWN";
+
+export interface AdminRequestTrace {
+  requestId: string;
+  correlation: AdminRequestCorrelation;
+  server: {
+    method: string;
+    path: string;
+    routeGroup: string;
+    status: number;
+    durationMs: number;
+    at: string;
+  } | null;
+  browser: {
+    events: {
+      eventName: string;
+      at: string;
+      reason: string | null;
+      httpStatus: number | null;
+    }[];
+    failureReason: string | null;
+  };
+  note: string;
+}
+
 export interface AdminSystemStatusService {
   name: string;
   status: string;
@@ -1967,6 +2183,15 @@ export interface AdminTeamMember {
   createdAt: string;
   updatedAt: string;
   roles: { role: { code: AdminRoleCode; name: string } }[];
+}
+
+function toQueryParams(query?: { from?: string; to?: string }): string {
+  if (!query) return "";
+  const params = new URLSearchParams();
+  if (query.from) params.set("from", query.from);
+  if (query.to) params.set("to", query.to);
+  const s = params.toString();
+  return s ? `?${s}` : "";
 }
 
 export const adminApi = {
@@ -3125,6 +3350,37 @@ export const adminApi = {
       { method: "POST" },
     ),
 
+  /** Storefront Health minimal contract (P1R). */
+  storefrontHealth: (): Promise<AdminStorefrontHealth> =>
+    adminAuthedFetch<AdminStorefrontHealth>("/api/v1/admin/observability/health"),
+
+  /** Probe matrix, uptime and edge evidence for the Availability page. */
+  storefrontAvailability: (): Promise<AdminAvailabilityReport> =>
+    adminAuthedFetch<AdminAvailabilityReport>("/api/v1/admin/observability/availability"),
+
+  /** P2-lite alert issues plus whether the engine is enabled. */
+  storefrontAlerts: (): Promise<AdminAlertList> =>
+    adminAuthedFetch<AdminAlertList>("/api/v1/admin/observability/alerts"),
+
+  updateStorefrontAlert: (
+    id: string,
+    status: AdminAlertStatus,
+  ): Promise<AdminAlertIssue> =>
+    adminAuthedFetch<AdminAlertIssue>(`/api/v1/admin/observability/alerts/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ status }),
+    }),
+
+  /** P3 API & Checkout diagnostics: route percentiles, chain, failures. */
+  storefrontApiDiagnostics: (): Promise<AdminApiDiagnostics> =>
+    adminAuthedFetch<AdminApiDiagnostics>("/api/v1/admin/observability/api"),
+
+  /** Correlate one request id across the server sample and browser attempts. */
+  storefrontRequestTrace: (requestId: string): Promise<AdminRequestTrace> =>
+    adminAuthedFetch<AdminRequestTrace>(
+      `/api/v1/admin/observability/api/requests/${encodeURIComponent(requestId)}`,
+    ),
+
   /** Host/system snapshot for the admin status page (read-only). */
   systemStatus: (): Promise<AdminSystemStatus> =>
     adminAuthedFetch<AdminSystemStatus>("/api/v1/admin/system-status"),
@@ -3235,3 +3491,4 @@ export const adminApi = {
       { method: "POST" },
     ),
 };
+
