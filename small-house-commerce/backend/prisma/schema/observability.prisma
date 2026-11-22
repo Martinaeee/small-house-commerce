@@ -1,0 +1,133 @@
+/// Synthetic probe evidence for Storefront Health (P1.5).
+/// One row per route per probe round; write-only from the probe worker.
+
+enum ProbeEnvironment {
+  PROD
+  EXTERNAL
+}
+
+enum ProbeCheck {
+  PASS
+  FAIL
+  UNKNOWN
+}
+
+enum ProbeStatus {
+  OPERATIONAL
+  DEGRADED
+  DOWN
+  UNKNOWN
+}
+
+model SyntheticProbeRun {
+  id          String           @id @default(uuid(7)) @db.Uuid
+  /// One id shared by every route in the same probe round.
+  runId       String           @map("run_id") @db.VarChar(64)
+  environment ProbeEnvironment
+  routeKey    String           @map("route_key") @db.VarChar(40)
+  routePath   String           @map("route_path") @db.VarChar(512)
+  status      ProbeStatus
+  dns         ProbeCheck
+  tls         ProbeCheck
+  http        ProbeCheck
+  httpStatus  Int?             @map("http_status")
+  latencyMs   Int?             @map("latency_ms")
+  dom         ProbeCheck
+  errorCode   String?          @map("error_code") @db.VarChar(120)
+  checkedAt   DateTime         @map("checked_at") @db.Timestamptz(3)
+  createdAt   DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  /// Idempotency: a retried round cannot double-write a route.
+  @@unique([environment, routeKey, runId])
+  @@index([routeKey, checkedAt])
+  @@index([checkedAt])
+  @@map("synthetic_probe_runs")
+}
+
+/// Independent external-node heartbeat. A missing heartbeat means the node is
+/// offline; it must never be turned into a storefront DOWN.
+model ProbeNodeHeartbeat {
+  id         String           @id @default(uuid(7)) @db.Uuid
+  nodeKey    String           @map("node_key") @db.VarChar(40)
+  environment ProbeEnvironment
+  reportedAt DateTime         @map("reported_at") @db.Timestamptz(3)
+  receivedAt DateTime         @default(now()) @map("received_at") @db.Timestamptz(3)
+
+  @@unique([nodeKey, reportedAt])
+  @@index([environment, reportedAt])
+  @@map("probe_node_heartbeats")
+}
+
+enum AlertSeverity {
+  P0
+  P1
+  P2
+}
+
+enum AlertStatus {
+  OPEN
+  ACKNOWLEDGED
+  CLOSED
+}
+
+/// Rule catalogue. P2-lite seeds/uses PROBE_DOWN, PROBE_STALE and
+/// PDP_5XX_TIMEOUT; P2 Full extends it without changing the issue shape.
+model AlertRule {
+  id        String        @id @default(uuid(7)) @db.Uuid
+  code      String        @unique @db.VarChar(40)
+  severity  AlertSeverity
+  enabled   Boolean       @default(true)
+  config    Json?
+  createdAt DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("alert_rules")
+}
+
+/// Storefront API request samples for P3 diagnostics. One row per recorded
+/// request; no body, query string, IP or customer data. Writes are buffered
+/// and never block the request path.
+model ApiRequestMetric {
+  id         String   @id @default(uuid(7)) @db.Uuid
+  /// Client `x-request-id` when sane, otherwise a server UUID. Links browser
+  /// checkout attempts (`attemptId`) to the server sample.
+  requestId  String   @map("request_id") @db.VarChar(64)
+  routeGroup String   @map("route_group") @db.VarChar(40)
+  method     String   @db.VarChar(8)
+  path       String   @db.VarChar(512)
+  status     Int
+  durationMs Int      @map("duration_ms")
+  sampledAt  DateTime @map("sampled_at") @db.Timestamptz(3)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@index([routeGroup, sampledAt])
+  @@index([sampledAt])
+  @@index([requestId])
+  @@map("api_request_metrics")
+}
+
+/// One row per fingerprint. Recovery closes it; a later recurrence reopens the
+/// same row and increments occurrences, keeping the original first-seen time.
+model AlertIssue {
+  id             String        @id @default(uuid(7)) @db.Uuid
+  ruleCode       String        @map("rule_code") @db.VarChar(40)
+  fingerprint    String        @db.VarChar(160)
+  severity       AlertSeverity
+  status         AlertStatus   @default(OPEN)
+  title          String        @db.VarChar(240)
+  detail         String        @db.Text
+  firstSeenAt    DateTime      @map("first_seen_at") @db.Timestamptz(3)
+  lastSeenAt     DateTime      @map("last_seen_at") @db.Timestamptz(3)
+  occurrences    Int           @default(1)
+  acknowledgedBy String?       @map("acknowledged_by") @db.Uuid
+  acknowledgedAt DateTime?     @map("acknowledged_at") @db.Timestamptz(3)
+  closedAt       DateTime?     @map("closed_at") @db.Timestamptz(3)
+  snoozedUntil   DateTime?     @map("snoozed_until") @db.Timestamptz(3)
+  createdAt      DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([ruleCode, fingerprint])
+  @@index([status, lastSeenAt])
+  @@index([severity, status])
+  @@map("alert_history")
+}

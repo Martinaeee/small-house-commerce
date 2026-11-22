@@ -124,6 +124,10 @@ export const RBAC_PERMISSIONS: {
     code: PermissionCode.ORDER_DELETE,
     description: 'Permanently delete orders from the workbench (Super Admin only).',
   },
+  {
+    code: PermissionCode.OBSERVABILITY_VIEW,
+    description: 'View the storefront intelligence workbench (overview and attribution quality).',
+  },
 ];
 
 const ALL_PERMISSIONS: PermissionCodeType[] = RBAC_PERMISSIONS.map(
@@ -161,6 +165,8 @@ export const RBAC_GRANTS: Record<RoleCodeType, PermissionCodeType[]> = {
     PermissionCode.MARKETING_MANAGE_OWN,
     PermissionCode.MARKETING_VIEW_ALL,
     PermissionCode.MARKETING_MANAGE_ALL,
+    // Analytics read: Overview + Attribution quality (see observability module).
+    PermissionCode.OBSERVABILITY_VIEW,
     // deliberately not SYSTEM_SETTINGS_EDIT
   ],
 
@@ -169,6 +175,8 @@ export const RBAC_GRANTS: Record<RoleCodeType, PermissionCodeType[]> = {
     PermissionCode.CAMPAIGN_LINK_BUILD,
     PermissionCode.MARKETING_VIEW_OWN,
     PermissionCode.MARKETING_MANAGE_OWN,
+    // Analytics read stays owner-scoped inside the service (scopeFor).
+    PermissionCode.OBSERVABILITY_VIEW,
     // deliberately not REPORT_PROFIT_VIEW, not ORDER_VIEW_ALL
   ],
 

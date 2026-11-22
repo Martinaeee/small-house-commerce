@@ -65,6 +65,10 @@ enum PermissionCode {
   /// Permanent order deletion from the workbench. Never granted to a
   /// non-super-admin role by RBAC_GRANTS.
   ORDER_DELETE
+
+  /// Read-only access to the storefront intelligence workbench (overview and
+  /// attribution quality). Optimizers see their own attribution data only.
+  OBSERVABILITY_VIEW
 }
 
 /// DATABASE.md §5 `users`.

@@ -199,6 +199,7 @@ describe('RBAC campaign link builder permission', () => {
       PermissionCode.CAMPAIGN_LINK_BUILD,
       PermissionCode.MARKETING_VIEW_OWN,
       PermissionCode.MARKETING_MANAGE_OWN,
+      PermissionCode.OBSERVABILITY_VIEW,
     ]);
     expect(RBAC_GRANTS[RoleCode.CONFIRMOR]).not.toContain(
       PermissionCode.CAMPAIGN_LINK_BUILD,
