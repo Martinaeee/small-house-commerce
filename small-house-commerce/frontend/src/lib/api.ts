@@ -1019,6 +1019,12 @@ export const api = {
     /** Client-generated retry key; a replay returns the original order. */
     idempotencyKey?: string | null;
     /**
+     * Checkout analytics attempt id, sent as x-request-id so the server sample
+     * and the browser failure event can be correlated in Storefront Health.
+     * Never used for authorization.
+     */
+    requestId?: string | null;
+    /**
      * Capability token of the unfinished-checkout draft this order came from.
      * The order transaction marks that draft CONVERTED; it is never used to
      * identify the shopper or to authorize anything outside that draft.
@@ -1058,6 +1064,7 @@ export const api = {
         // F04: the order request has its own deadline. A timeout is an
         // unknown outcome, recovered through checkoutAttemptStatus below.
         timeoutMs: PLACE_ORDER_RESPONSE_BUDGET_MS,
+        ...(input.requestId ? { headers: { "x-request-id": input.requestId } } : {}),
       },
     ),
 

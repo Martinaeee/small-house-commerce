@@ -11,6 +11,7 @@ const text = (max: number) => z.string().max(max).nullable().optional();
 const base = z.object({
   step: z.enum(['form', 'confirm']),
   attemptId: text(120),
+  requestId: z.string().regex(/^[A-Za-z0-9_-]{8,64}$/).optional(),
   retry: z.number().int().min(1).max(100000).optional(),
   skuIds: z.array(z.string().max(100)).max(100).default([]),
   quantities: z.array(z.number().int().min(1).max(100000)).max(100).default([]),

@@ -598,7 +598,10 @@ export function CheckoutConfirmView({
     inFlightRef.current = true;
     setPhase("SUBMITTING");
     try {
-      const order = await api.createOrder(submission.payload);
+      const order = await api.createOrder({
+        ...submission.payload,
+        requestId: occurrence?.requestId,
+      });
       finishOrder(
         order.orderNumber,
         order.grandTotal,

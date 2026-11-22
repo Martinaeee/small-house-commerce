@@ -10,8 +10,8 @@ import {
   Req,
   Res,
 } from '@nestjs/common';
-import { randomUUID } from 'node:crypto';
 import type { Request, Response } from 'express';
+import { resolveRequestId } from '../../../common/request-id.js';
 import { ZodValidationPipe } from '../../../common/pipes/zod-validation.pipe.js';
 import { checkoutRequestMeta } from '../../meta-capi/request-meta.js';
 import {
@@ -66,7 +66,6 @@ function deviceTypeOf(userAgent: string | undefined): 'mobile' | 'tablet' | 'des
 @Controller('storefront/orders')
 export class StorefrontOrdersController {
   private readonly logger = new Logger(StorefrontOrdersController.name);
-  private static readonly REQUEST_ID = /^[A-Za-z0-9_-]{8,64}$/;
 
   constructor(
     private readonly ordersService: OrdersService,
@@ -77,10 +76,7 @@ export class StorefrontOrdersController {
 
   /** Client-supplied tracing id when sane, otherwise ours; echoed in the header. */
   private requestId(request: Request): string {
-    const raw = request.headers['x-request-id'];
-    return typeof raw === 'string' && StorefrontOrdersController.REQUEST_ID.test(raw)
-      ? raw
-      : randomUUID();
+    return resolveRequestId(request.headers['x-request-id']);
   }
 
   @Post()

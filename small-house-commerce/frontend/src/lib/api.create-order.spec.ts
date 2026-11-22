@@ -46,6 +46,36 @@ describe("api.createOrder", () => {
       "mw0abc.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     );
   });
+
+  it("sends the checkout attempt id as x-request-id and keeps it out of the body", async () => {
+    const fetchMock = vi.fn(
+      async (_input: RequestInfo | URL, _init?: RequestInit) =>
+        new Response(
+          JSON.stringify({
+            orderNumber: "PH100021",
+            orderStatus: "NEW",
+            confirmationStatus: "UNCONFIRMED",
+            grandTotal: 1299,
+          }),
+          { status: 200 },
+        ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await api.createOrder({
+      customer: CUSTOMER,
+      items: [{ skuId: "11111111-1111-4111-8111-111111111111", quantity: 1 }],
+      attribution: { sourceType: "ORGANIC" },
+      requestId: "11111111-2222-4333-8444-555555555555",
+    });
+
+    const init = fetchMock.mock.calls[0][1] as RequestInit;
+    expect((init.headers as Record<string, string>)["x-request-id"]).toBe(
+      "11111111-2222-4333-8444-555555555555",
+    );
+    const body = JSON.parse(init.body as string) as Record<string, unknown>;
+    expect(body).not.toHaveProperty("requestId");
+  });
 });
 
 describe("api.createOrder deadline", () => {

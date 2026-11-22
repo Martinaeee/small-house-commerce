@@ -85,10 +85,12 @@ describe("recordSubmitFailure", () => {
     expect(a.retry).toBe(1);
     expect(b.retry).toBe(1);
     expect(a.attemptId).toBe(b.attemptId);
+    expect(a.requestId).toMatch(/^[A-Za-z0-9_-]{8,64}$/);
+    expect(a.requestId).toBe(b.requestId);
     expect(a).not.toHaveProperty("customer");
-    expect(
-      recordSubmitAttempt({ step: "confirm", items, scope: "cart:a" })?.retry,
-    ).toBe(2);
+    const next = recordSubmitAttempt({ step: "confirm", items, scope: "cart:a" });
+    expect(next?.retry).toBe(2);
+    expect(next?.requestId).not.toBe(a.requestId);
   });
   it("shares a flow between form and confirm and starts afresh after success", () => {
     history.replaceState(null, "", "/checkout?skuId=a");

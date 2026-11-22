@@ -2,6 +2,10 @@ import { describe, it, expect } from 'vitest';
 import { checkoutMetadata } from './checkout-metadata.js';
 
 describe('checkout diagnostic metadata boundary', () => {
+  it('retains the per-request trace id without exposing customer fields on attempts', () => {
+    expect(checkoutMetadata('CHECKOUT_SUBMIT_ATTEMPT', { step: 'confirm', requestId: 'request-1234', customer: { name: 'Private' } })).toMatchObject({ requestId: 'request-1234' });
+    expect(checkoutMetadata('CHECKOUT_SUBMIT_ATTEMPT', { step: 'confirm', requestId: 'bad id' })).toBeNull();
+  });
   it('only permits customer and the full key on failure events', () => {
     const m = {
       step: 'form',

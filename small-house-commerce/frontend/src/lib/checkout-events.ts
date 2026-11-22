@@ -24,6 +24,7 @@ export interface CustomerSnapshot {
 export interface SubmitOccurrence {
   attemptId: string;
   retry: number;
+  requestId?: string;
 }
 const ATTEMPT_KEY = "luwag_checkout_attempt";
 let memory: { id: string; scope: string; retry: number } | null = null;
@@ -77,7 +78,10 @@ function nextOccurrence(scope = defaultScope()): SubmitOccurrence {
   const attemptId = checkoutAttemptId(scope);
   const retry = (readAttempt()?.retry ?? 0) + 1;
   writeAttempt({ id: attemptId, scope, retry });
-  return { attemptId, retry };
+  const requestId = typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : `r-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  return { attemptId, retry, requestId };
 }
 export function checkoutFailureReason(error: unknown): FailureReason {
   if (error && typeof error === "object" && "status" in error) {
