@@ -1,6 +1,15 @@
 import "@testing-library/jest-dom/vitest";
-import { cleanup } from "@testing-library/react";
+import { cleanup, configure } from "@testing-library/react";
 import { afterEach, vi } from "vitest";
+
+/**
+ * Testing Library waits 1000 ms for an element by default. Several admin
+ * screens render their options after a promise settles, so on a loaded
+ * machine that budget is occasionally not enough and the assertion fails on
+ * an element that was about to arrive. The waits are the ones that matter
+ * here, so give them room instead of loosening the individual specs.
+ */
+configure({ asyncUtilTimeout: 5000 });
 
 /**
  * next/font/local only exists inside the Next build — under vitest the module
