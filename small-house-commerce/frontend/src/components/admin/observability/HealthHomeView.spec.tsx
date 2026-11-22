@@ -169,4 +169,29 @@ describe("HealthHomeView (P1R final)", () => {
     expect(screen.getAllByText("PDP server errors or slow responses").length).toBeGreaterThan(0);
     expect(container.textContent).not.toContain("暂无可用的优先级数据。");
   });
+
+  it("does not claim a clean result while alerting is disabled", () => {
+    const { container } = render(
+      <HealthHomeView
+        data={health}
+        alerts={{ alertingEnabled: false, issues: [] }}
+        t={t}
+      />,
+    );
+    // An empty list from a disabled engine is not evidence of a healthy system.
+    expect(container.textContent).not.toContain("未检测到活跃问题。");
+    expect(screen.getAllByText("告警尚未启用（P2-lite）。").length).toBeGreaterThan(0);
+    expect(container.querySelector("[data-health-status='OPERATIONAL']")).toBeNull();
+  });
+
+  it("still reports a clean result when alerting is enabled and no issue is open", () => {
+    const { container } = render(
+      <HealthHomeView
+        data={health}
+        alerts={{ alertingEnabled: true, issues: [] }}
+        t={t}
+      />,
+    );
+    expect(container.textContent).toContain("未检测到活跃问题。");
+  });
 });

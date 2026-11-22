@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { zh } from "@/i18n/zh";
 import type { AdminI18n } from "@/lib/admin-i18n";
@@ -105,5 +105,33 @@ describe("AvailabilityView (P1.5 preview)", () => {
     expect(screen.getByText("探针节点心跳")).toBeTruthy();
     expect(screen.getByText("Production probe")).toBeTruthy();
     expect(screen.getAllByText("在线").length).toBe(2);
+  });
+
+  it("keeps the routes of one probe round separately expandable", () => {
+    // One round covers every route and shares a single run id, so the round id
+    // alone cannot identify a row.
+    const twoRoutesOneRound: AdminAvailabilityReport = {
+      ...report,
+      runs: [
+        { runId: "run-shared", route: "home", source: "PROD", status: "OPERATIONAL", httpStatus: 200, latencyMs: 180, checkedAt: "2026-11-12T10:29:42.000Z" },
+        { runId: "run-shared", route: "cart", source: "PROD", status: "DEGRADED", httpStatus: 200, latencyMs: 900, checkedAt: "2026-11-12T10:29:47.000Z" },
+      ],
+    };
+    render(
+      <AvailabilityView data={twoRoutesOneRound} error={null} loading={false} onRefresh={() => {}} t={t} />,
+    );
+
+    // The mobile list is the one with the disclosure buttons.
+    const homeRow = screen
+      .getAllByText("home")
+      .find((node) => node.closest("button"))!;
+    expect(homeRow).toBeTruthy();
+    fireEvent.click(homeRow);
+    // Only the tapped route opens: the detail line is the only place the full
+    // run id appears outside the desktop table, so exactly one such line exists.
+    const detailLines = screen
+      .getAllByText(/run-shared/)
+      .filter((node) => node.tagName === "P");
+    expect(detailLines.length).toBe(1);
   });
 });

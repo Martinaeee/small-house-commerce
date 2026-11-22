@@ -222,7 +222,7 @@ export function HealthHomeView({
       <Card
         title={t("health_recent_issues")}
         badge={
-          alerts ? (
+          alerts?.alertingEnabled ? (
             <HealthStatusBadge
               status={
                 worstIssue
@@ -239,14 +239,16 @@ export function HealthHomeView({
           )
         }
       >
-        {alerts ? (
+        {alerts?.alertingEnabled ? (
           openIssues.length === 0 ? (
             <p className="mt-3 text-xs text-admin-muted">{t("alerts_none_evaluated")}</p>
           ) : (
             <IssueList issues={openIssues.slice(0, 5)} t={t} />
           )
         ) : (
-          <p className="mt-3 text-xs text-admin-muted">{t("health_monitoring_unavailable")}</p>
+          <p className="mt-3 text-xs text-admin-muted">
+            {alerts ? t("alerts_not_enabled") : t("health_monitoring_unavailable")}
+          </p>
         )}
       </Card>
 
@@ -259,7 +261,11 @@ export function HealthHomeView({
           <IssueList issues={[worstIssue]} t={t} />
         ) : (
           <p className="mt-3 text-xs text-admin-muted">
-            {alerts ? t("alerts_none_evaluated") : t("health_no_priority_data")}
+            {alerts?.alertingEnabled
+              ? t("alerts_none_evaluated")
+              : alerts
+                ? t("alerts_not_enabled")
+                : t("health_no_priority_data")}
           </p>
         )}
       </Card>

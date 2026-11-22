@@ -349,7 +349,7 @@ export function AvailabilityView({
             </thead>
             <tbody>
               {data.runs.map((run) => (
-                <tr key={run.runId} className="border-b border-admin-border/60 last:border-0">
+                <tr key={`${run.runId}::${run.route}`} className="border-b border-admin-border/60 last:border-0">
                   <td className="py-2 pr-3 text-xs text-admin-muted">{formatTime(run.checkedAt)}</td>
                   <td className="px-2 py-2">{run.route}</td>
                   <td className="px-2 py-2 text-xs text-admin-muted">{run.source}</td>
@@ -364,24 +364,29 @@ export function AvailabilityView({
         </div>
 
         <ul className="mt-3 space-y-2 md:hidden">
-          {data.runs.map((run) => (
-            <li key={run.runId}>
-              <button
-                type="button"
-                onClick={() => setRunDetail(runDetail === run.runId ? null : run.runId)}
-                className="flex w-full items-center justify-between gap-2 rounded-lg border border-admin-border/70 px-3 py-2 text-left"
-              >
-                <span className="text-xs text-admin-muted">{formatTime(run.checkedAt)}</span>
-                <span className="text-sm text-admin-ink">{run.route}</span>
-                <HealthStatusBadge status={run.status} />
-              </button>
-              {runDetail === run.runId ? (
-                <p className="mt-1 px-3 text-[11px] text-admin-muted">
-                  {run.source} · HTTP {run.httpStatus ?? "—"} · {formatMs(run.latencyMs)} · {run.runId}
-                </p>
-              ) : null}
-            </li>
-          ))}
+              {data.runs.map((run) => {
+                // One probe round covers every route and shares a single run
+                // id, so a row is identified by the pair.
+                const rowKey = `${run.runId}::${run.route}`;
+                return (
+                <li key={rowKey}>
+                  <button
+                    type="button"
+                    onClick={() => setRunDetail(runDetail === rowKey ? null : rowKey)}
+                    className="flex w-full items-center justify-between gap-2 rounded-lg border border-admin-border/70 px-3 py-2 text-left"
+                  >
+                    <span className="text-xs text-admin-muted">{formatTime(run.checkedAt)}</span>
+                    <span className="text-sm text-admin-ink">{run.route}</span>
+                    <HealthStatusBadge status={run.status} />
+                  </button>
+                  {runDetail === rowKey ? (
+                    <p className="mt-1 px-3 text-[11px] text-admin-muted">
+                      {run.source} · HTTP {run.httpStatus ?? "—"} · {formatMs(run.latencyMs)} · {run.runId}
+                    </p>
+                  ) : null}
+                </li>
+                );
+              })}
         </ul>
       </Card>
 

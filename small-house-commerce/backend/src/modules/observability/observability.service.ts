@@ -177,11 +177,14 @@ export interface ApiDiagnosticsResponse {
   recentFailures: ApiRecentFailure[];
 }
 
+/**
+ * The three states the evidence can actually support. A browser network error
+ * cannot show that the server never received the request, and a retained
+ * server sample proves nothing was dropped — so neither has a state here.
+ */
 export type RequestCorrelation =
   | 'CORRELATED'
-  | 'SERVER_SAMPLE_DROPPED'
   | 'SERVER_LOG_MISSING'
-  | 'NOT_RECEIVED_CONFIRMED'
   | 'UNKNOWN';
 
 export interface RequestTraceResponse {

@@ -1973,9 +1973,7 @@ export interface AdminApiDiagnostics {
 
 export type AdminRequestCorrelation =
   | "CORRELATED"
-  | "SERVER_SAMPLE_DROPPED"
   | "SERVER_LOG_MISSING"
-  | "NOT_RECEIVED_CONFIRMED"
   | "UNKNOWN";
 
 export interface AdminRequestTrace {
