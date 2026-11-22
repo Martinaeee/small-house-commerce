@@ -15,6 +15,7 @@ pnpm run rbac:reconcile-newsletter
 
 echo "[entrypoint] Reconciling Storefront Shell role grants…"
 pnpm run rbac:reconcile-storefront-shell
+  pnpm run rbac:reconcile-observability-view
 
 echo "[entrypoint] Reconciling Order role grants…"
 pnpm run rbac:reconcile-order-permissions

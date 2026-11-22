@@ -21,6 +21,7 @@ import { StorefrontShellModule } from './modules/storefront-shell/storefront-she
 import { EmailModule } from './modules/email/email.module.js';
 import { NewsletterModule } from './modules/newsletter/newsletter.module.js';
 import { DashboardModule } from './modules/dashboard/dashboard.module.js';
+import { ObservabilityModule } from './modules/observability/observability.module.js';
 import { SystemStatusModule } from './modules/system-status/system-status.module.js';
 import { AnalyticsModule } from './modules/analytics/analytics.module.js';
 import { MetaCapiModule } from './modules/meta-capi/meta-capi.module.js';
@@ -61,6 +62,7 @@ import { UsersModule } from './modules/users/users.module.js';
     EmailModule,
     NewsletterModule,
     DashboardModule,
+    ObservabilityModule,
     SystemStatusModule,
     AnalyticsModule,
     MetaCapiModule,
