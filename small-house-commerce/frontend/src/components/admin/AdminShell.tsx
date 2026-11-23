@@ -119,43 +119,50 @@ const NAV_ITEMS: NavEntry[] = [
     permission: "PRODUCT_MANAGE",
   },
   {
-    kind: "item",
-    href: "/admin/observability",
-    labelKey: "nav_observability",
+    kind: "group",
+    labelKey: "observability_title",
     permission: "OBSERVABILITY_VIEW",
-    exact: true,
-    // The health modules collapse under their overview row, the same way the
-    // access diagnostics sit under system status.
-    children: [
+    items: [
       {
         kind: "item",
-        href: "/admin/observability/availability",
-        labelKey: "nav_availability",
+        href: "/admin/observability",
+        labelKey: "nav_observability",
         permission: "OBSERVABILITY_VIEW",
-      },
-      {
-        kind: "item",
-        href: "/admin/observability/page-experience",
-        labelKey: "nav_page_experience",
-        permission: "OBSERVABILITY_VIEW",
-      },
-      {
-        kind: "item",
-        href: "/admin/observability/api-checkout",
-        labelKey: "nav_api_checkout",
-        permission: "OBSERVABILITY_VIEW",
-      },
-      {
-        kind: "item",
-        href: "/admin/observability/journey",
-        labelKey: "nav_journey",
-        permission: "OBSERVABILITY_VIEW",
-      },
-      {
-        kind: "item",
-        href: "/admin/observability/alerts",
-        labelKey: "nav_alerts",
-        permission: "OBSERVABILITY_VIEW",
+        exact: true,
+        // The health modules collapse under their overview row, the same way
+        // the access diagnostics sit under system status.
+        children: [
+          {
+            kind: "item",
+            href: "/admin/observability/availability",
+            labelKey: "nav_availability",
+            permission: "OBSERVABILITY_VIEW",
+          },
+          {
+            kind: "item",
+            href: "/admin/observability/page-experience",
+            labelKey: "nav_page_experience",
+            permission: "OBSERVABILITY_VIEW",
+          },
+          {
+            kind: "item",
+            href: "/admin/observability/api-checkout",
+            labelKey: "nav_api_checkout",
+            permission: "OBSERVABILITY_VIEW",
+          },
+          {
+            kind: "item",
+            href: "/admin/observability/journey",
+            labelKey: "nav_journey",
+            permission: "OBSERVABILITY_VIEW",
+          },
+          {
+            kind: "item",
+            href: "/admin/observability/alerts",
+            labelKey: "nav_alerts",
+            permission: "OBSERVABILITY_VIEW",
+          },
+        ],
       },
     ],
   },

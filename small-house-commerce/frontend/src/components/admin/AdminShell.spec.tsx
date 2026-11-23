@@ -243,17 +243,20 @@ describe("AdminShell Storefront Health group", () => {
   it("keeps the health modules collapsed under the overview row until expanded", () => {
     renderShell();
 
-    expect(within(desktopNav()).queryByText("nav_availability")).toBeNull();
+    const nav = desktopNav();
+    // The section keeps its own heading, the way the website group does.
+    expect(within(nav).getByText("observability_title")).toBeVisible();
+    expect(within(nav).queryByText("nav_availability")).toBeNull();
 
     fireEvent.click(
-      within(desktopNav()).getByRole("button", { name: "nav_observability" }),
+      within(nav).getByRole("button", { name: "nav_observability" }),
     );
 
     expect(
-      within(desktopNav()).getByRole("link", { name: "nav_availability" }),
+      within(nav).getByRole("link", { name: "nav_availability" }),
     ).toHaveAttribute("href", "/admin/observability/availability");
     expect(
-      within(desktopNav()).getByRole("link", { name: "nav_alerts" }),
+      within(nav).getByRole("link", { name: "nav_alerts" }),
     ).toHaveAttribute("href", "/admin/observability/alerts");
   });
 
