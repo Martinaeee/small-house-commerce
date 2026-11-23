@@ -22,6 +22,10 @@ ENV NEXT_PUBLIC_META_PIXEL_ID=$NEXT_PUBLIC_META_PIXEL_ID
 # to the production domain in src/lib/site-url.ts.
 ARG NEXT_PUBLIC_SITE_URL=""
 ENV NEXT_PUBLIC_SITE_URL=$NEXT_PUBLIC_SITE_URL
+# Object-storage/CDN base for uploaded media (e.g. the COS or CDN origin).
+# Empty keeps media on the backend's /uploads path.
+ARG NEXT_PUBLIC_MEDIA_BASE_URL=""
+ENV NEXT_PUBLIC_MEDIA_BASE_URL=$NEXT_PUBLIC_MEDIA_BASE_URL
 # pnpm resolves packages against this registry (npmjs by default). A mirror
 # exists for regions where npmjs is unreachable or flaky. Empty = official.
 ARG NPM_CONFIG_REGISTRY=""

@@ -2,6 +2,24 @@ import type { NextConfig } from "next";
 
 const API_TARGET = process.env.API_TARGET || "http://localhost:3000";
 
+// Object-storage/CDN base for uploaded media. When set, the optimizer may
+// fetch absolute media URLs from this host (remotePatterns below) and
+// image-url.ts routes them through /_next/image.
+const MEDIA_BASE = (process.env.NEXT_PUBLIC_MEDIA_BASE_URL ?? "").trim();
+const mediaRemotePattern = (() => {
+  if (!MEDIA_BASE) return null;
+  try {
+    const url = new URL(MEDIA_BASE);
+    return {
+      protocol: url.protocol.replace(":", "") as "http" | "https",
+      hostname: url.hostname,
+      pathname: "/**",
+    };
+  } catch {
+    return null;
+  }
+})();
+
 const nextConfig: NextConfig = {
   // Minimal self-contained server output for the production Docker image
   // (Task 3). `next dev` is unaffected; rewrites below still apply.
@@ -14,6 +32,7 @@ const nextConfig: NextConfig = {
   // encoding is too slow on the container CPU — WebP only.
   images: {
     localPatterns: [{ pathname: "/uploads/**", search: "" }, { pathname: "/about/**", search: "" }],
+    ...(mediaRemotePattern ? { remotePatterns: [mediaRemotePattern] } : {}),
     formats: ["image/webp"],
     // Uploaded files are immutable (UUID filenames), so a long TTL is safe and
     // stops returning visitors from re-downloading galleries after four hours.

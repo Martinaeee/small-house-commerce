@@ -6,6 +6,26 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { R2Settings } from './r2-presign.js';
 import { UploadsService } from './uploads.service.js';
 
+const cosMock = vi.hoisted(() => ({
+  putObject: vi.fn(
+    (_options: unknown, callback: (error: unknown, data: unknown) => void) =>
+      callback(null, { statusCode: 200 }),
+  ),
+}));
+vi.mock('cos-nodejs-sdk-v5', () => ({
+  default: class {
+    putObject = cosMock.putObject;
+  },
+}));
+
+const cosSettings = {
+  secretId: 'AKIDEXAMPLE',
+  secretKey: 'secretexample',
+  bucket: 'luwagshop-1257828062',
+  region: 'ap-singapore',
+  publicBaseUrl: 'https://luwagshop-1257828062.cos.ap-singapore.myqcloud.com',
+};
+
 const settings: R2Settings = {
   accountId: 'acct123',
   accessKeyId: 'AKIAEXAMPLE',
@@ -16,6 +36,7 @@ const settings: R2Settings = {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  cosMock.putObject.mockClear();
 });
 
 describe('UploadsService.saveProcessed', () => {
@@ -126,24 +147,59 @@ describe('UploadsService.presign', () => {
   });
 });
 
-describe('UploadsService.saveLocal', () => {
+describe('UploadsService COS storage', () => {
+  const config = {
+    get: vi.fn((key: string) =>
+      key === 'cos' ? cosSettings : key === 'upload.durable' ? false : undefined,
+    ),
+  };
+
+  it('uploads a catalog image to COS and returns its public URL', async () => {
+    const service = new UploadsService(config as never);
+    const res = await service.saveMedia(Buffer.from('png'), 'image/png');
+    expect(res.url).toMatch(
+      /^https:\/\/luwagshop-1257828062\.cos\.ap-singapore\.myqcloud\.com\/catalog\/\d{4}\/[0-9a-f-]{36}\.png$/,
+    );
+    expect(res.key).toMatch(/^catalog\/\d{4}\/[0-9a-f-]{36}\.png$/);
+    expect(cosMock.putObject).toHaveBeenCalledWith(
+      expect.objectContaining({
+        Bucket: 'luwagshop-1257828062',
+        Region: 'ap-singapore',
+        Key: res.key,
+        ContentType: 'image/png',
+      }),
+      expect.any(Function),
+    );
+  });
+
+  it('uploads a processed brand asset to COS as durable storage', async () => {
+    const service = new UploadsService(config as never);
+    const res = await service.saveProcessed(Buffer.from('webp'), 'image/webp', 'brand');
+    expect(res).toMatchObject({ storage: 'COS', durable: true });
+    expect(res.url).toMatch(
+      /^https:\/\/luwagshop-1257828062\.cos\.ap-singapore\.myqcloud\.com\/brand\/\d{4}\/[0-9a-f-]{36}\.webp$/,
+    );
+  });
+});
+
+describe('UploadsService.saveMedia', () => {
   const config = { get: vi.fn(() => null) };
   const service = new UploadsService(config as never);
 
   it('writes the buffer under catalog/<year>/<uuid>.<ext> and returns its /uploads URL', async () => {
-    const res = await service.saveLocal(Buffer.from('fake-jpeg'), 'image/jpeg');
+    const res = await service.saveMedia(Buffer.from('fake-jpeg'), 'image/jpeg');
     expect(res.url).toMatch(/^\/uploads\/catalog\/\d{4}\/[0-9a-f-]{36}\.jpg$/);
     expect(res.key).toMatch(/^catalog\/\d{4}\/[0-9a-f-]{36}\.jpg$/);
   });
 
   it('maps png and webp extensions', async () => {
-    expect((await service.saveLocal(Buffer.from('x'), 'image/png')).url.endsWith('.png')).toBe(true);
-    expect((await service.saveLocal(Buffer.from('x'), 'image/webp')).url.endsWith('.webp')).toBe(true);
+    expect((await service.saveMedia(Buffer.from('x'), 'image/png')).url.endsWith('.png')).toBe(true);
+    expect((await service.saveMedia(Buffer.from('x'), 'image/webp')).url.endsWith('.webp')).toBe(true);
   });
 
   it('rejects unsupported types and empty bodies', async () => {
-    await expect(service.saveLocal(Buffer.from('x'), 'image/gif')).rejects.toThrow(/Unsupported media type/);
-    await expect(service.saveLocal(Buffer.alloc(0), 'image/jpeg')).rejects.toThrow(/Empty upload/);
+    await expect(service.saveMedia(Buffer.from('x'), 'image/gif')).rejects.toThrow(/Unsupported media type/);
+    await expect(service.saveMedia(Buffer.alloc(0), 'image/jpeg')).rejects.toThrow(/Empty upload/);
   });
 
   it('stores the transcoded bytes for a large mp4 and keeps the .mp4 key', async () => {
@@ -157,7 +213,7 @@ describe('UploadsService.saveLocal', () => {
       );
       const big = Buffer.alloc(1_600_000, 0x5a); // above the 1.5 MB transcode gate
 
-      const result = await localService.saveLocal(big, 'video/mp4');
+      const result = await localService.saveMedia(big, 'video/mp4');
 
       expect(transcoder.transcode).toHaveBeenCalledWith(big, 'video/mp4');
       expect(result.url).toMatch(/\.mp4$/);
@@ -177,7 +233,7 @@ describe('UploadsService.saveLocal', () => {
         transcoder as never,
       );
 
-      const result = await localService.saveLocal(original, 'video/mp4');
+      const result = await localService.saveMedia(original, 'video/mp4');
       expect((await readFile(join(dir, result.key))).equals(original)).toBe(true);
 
       const grower = { transcode: vi.fn(async () => ({ buffer: Buffer.alloc(2_000_000), contentType: 'video/mp4' })) };
@@ -185,7 +241,7 @@ describe('UploadsService.saveLocal', () => {
         { get: vi.fn((key: string) => (key === 'upload.dir' ? dir : null)) } as never,
         grower as never,
       );
-      const result2 = await growing.saveLocal(original, 'video/mp4');
+      const result2 = await growing.saveMedia(original, 'video/mp4');
       expect(result2.url).toMatch(/\.mp4$/);
       const stored = await readFile(join(dir, result2.key));
       expect(stored.equals(original)).toBe(true);
@@ -202,7 +258,7 @@ describe('UploadsService.saveLocal', () => {
         { get: (key: string) => key === 'upload.dir' ? dir : null } as never,
         { transcode: async () => ({ buffer: encoded, contentType: 'video/mp4' }) } as never,
       );
-      const result = await service.saveLocal(Buffer.alloc(1_600_000), 'video/quicktime');
+      const result = await service.saveMedia(Buffer.alloc(1_600_000), 'video/quicktime');
       expect(result.key).toMatch(/\.mp4$/);
       expect((await readFile(join(dir, result.key))).equals(encoded)).toBe(true);
     } finally {
@@ -216,9 +272,9 @@ describe('UploadsService.saveLocal', () => {
       { get: vi.fn(() => null) } as never,
       transcoder as never,
     );
-    await probing.saveLocal(Buffer.alloc(1_000, 0x21), 'video/mp4');
-    await probing.saveLocal(Buffer.alloc(1_600_000, 0x21), 'image/jpeg');
-    await probing.saveLocal(Buffer.alloc(1_600_000, 0x21), 'video/webm');
+    await probing.saveMedia(Buffer.alloc(1_000, 0x21), 'video/mp4');
+    await probing.saveMedia(Buffer.alloc(1_600_000, 0x21), 'image/jpeg');
+    await probing.saveMedia(Buffer.alloc(1_600_000, 0x21), 'video/webm');
     expect(transcoder.transcode).not.toHaveBeenCalled();
   });
 });

@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { PresignUploadInput } from './dto/upload.dto.js';
+import { CosStorage, isCompleteCos, type CosSettings } from './cos-storage.js';
 import { buildR2PresignedPutUrl, type PresignResult, type R2Settings } from './r2-presign.js';
 import { VideoTranscoderService } from './video-transcoder.service.js';
 
@@ -32,7 +33,7 @@ export type ProcessedImageType = 'image/png' | 'image/webp';
 export type ProcessedUploadResult = {
   url: string;
   key: string;
-  storage: 'LOCAL' | 'R2';
+  storage: 'LOCAL' | 'R2' | 'COS';
   durable: boolean;
 };
 
@@ -42,10 +43,36 @@ export function maxBytesFor(contentType: string): number {
 
 @Injectable()
 export class UploadsService {
+  private cosStorage: CosStorage | null | undefined;
+
   constructor(
     private readonly config: ConfigService,
     @Inject(VideoTranscoderService) private readonly transcoder?: VideoTranscoderService,
   ) {}
+
+  /** Built once per process; null keeps uploads on local disk. */
+  private cos(): CosStorage | null {
+    if (this.cosStorage !== undefined) return this.cosStorage;
+    const settings = this.config.get<Partial<CosSettings> | null>('cos');
+    this.cosStorage = isCompleteCos(settings) ? new CosStorage(settings) : null;
+    return this.cosStorage;
+  }
+
+  private async putCos(
+    cos: CosStorage,
+    key: string,
+    body: Buffer,
+    contentType: string,
+  ): Promise<void> {
+    try {
+      await cos.putObject(key, body, contentType);
+    } catch (error) {
+      throw new ServiceUnavailableException({
+        code: 'UPLOAD_STORAGE_FAILED',
+        message: `COS upload failed: ${(error as Error)?.message ?? 'unknown error'}`,
+      });
+    }
+  }
 
   // fileName is accepted for API stability but deliberately not used in the
   // key: keys are year/uuid only, so no path traversal or odd bytes survive.
@@ -82,6 +109,16 @@ export class UploadsService {
     const extension = contentType === 'image/png' ? 'png' : 'webp';
     const year = new Date().getUTCFullYear();
     const key = `${namespace}/${year}/${randomUUID()}.${extension}`;
+    const cos = this.cos();
+    if (cos) {
+      await this.putCos(cos, key, buffer, contentType);
+      return {
+        url: cos.publicUrl(key),
+        key,
+        storage: 'COS',
+        durable: true,
+      };
+    }
     const r2 = this.config.get<Partial<R2Settings> | null>('r2');
 
     if (isCompleteR2(r2)) {
@@ -118,13 +155,12 @@ export class UploadsService {
   }
 
   /**
-   * Local-disk upload (default path when R2 is not configured): write the
-   * bytes under UPLOAD_DIR and return the site-relative URL the backend
-   * itself serves at /uploads/*. Keys mirror the R2 layout (catalog/<year>/
-   * <uuid>.<ext>) so a later switch to object storage changes nothing but the
+   * Catalog media upload: COS when configured, otherwise the local volume the
+   * backend serves at /uploads/*. Keys mirror the COS layout
+   * (catalog/<year>/<uuid>.<ext>) so a later storage switch only changes the
    * base URL.
    */
-  async saveLocal(buffer: Buffer, contentType: string): Promise<{ url: string; key: string }> {
+  async saveMedia(buffer: Buffer, contentType: string): Promise<{ url: string; key: string }> {
     let ext = EXTENSION_BY_TYPE[contentType];
     if (!ext) {
       throw new BadRequestException(`Unsupported media type: ${contentType}`);
@@ -161,9 +197,15 @@ export class UploadsService {
     }
     ext = EXTENSION_BY_TYPE[payloadType] ?? ext;
 
-    const dir = this.config.get<string>('upload.dir') ?? join(process.cwd(), 'uploads');
     const year = new Date().getUTCFullYear();
     const key = `catalog/${year}/${randomUUID()}.${ext}`;
+    const cos = this.cos();
+    if (cos) {
+      await this.putCos(cos, key, payload, payloadType);
+      return { url: cos.publicUrl(key), key };
+    }
+
+    const dir = this.config.get<string>('upload.dir') ?? join(process.cwd(), 'uploads');
     const abs = join(dir, key);
     await mkdir(join(dir, `catalog/${year}`), { recursive: true });
     await writeFile(abs, payload);

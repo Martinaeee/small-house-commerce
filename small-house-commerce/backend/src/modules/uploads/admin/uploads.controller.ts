@@ -65,6 +65,6 @@ export class AdminUploadsController {
     if (body.length === 0) {
       throw new BadRequestException('Upload body missing — send the file bytes directly');
     }
-    return this.uploads.saveLocal(body, contentType);
+    return this.uploads.saveMedia(body, contentType);
   }
 }

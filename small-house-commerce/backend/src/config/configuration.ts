@@ -10,9 +10,19 @@ export function hasCompleteR2(env: Env): boolean {
   );
 }
 
+export function hasCompleteCos(env: Env): boolean {
+  return Boolean(
+    env.COS_SECRET_ID &&
+      env.COS_SECRET_KEY &&
+      env.COS_BUCKET &&
+      env.COS_REGION,
+  );
+}
+
 export function uploadStorageIsDurable(env: Env): boolean {
   return (
     hasCompleteR2(env) ||
+    hasCompleteCos(env) ||
     env.UPLOAD_STORAGE_DURABLE === 'true' ||
     env.NODE_ENV !== 'production'
   );
@@ -63,6 +73,19 @@ export function configuration() {
       secretAccessKey: env.R2_SECRET_ACCESS_KEY ?? null,
       bucket: env.R2_BUCKET ?? null,
       publicBaseUrl: env.R2_PUBLIC_BASE_URL ?? null,
+    },
+    // Tencent COS. The public base defaults to the bucket's default domain;
+    // a CDN domain can replace it later without touching code.
+    cos: {
+      secretId: env.COS_SECRET_ID ?? null,
+      secretKey: env.COS_SECRET_KEY ?? null,
+      bucket: env.COS_BUCKET ?? null,
+      region: env.COS_REGION ?? null,
+      publicBaseUrl:
+        env.COS_PUBLIC_BASE_URL ??
+        (env.COS_BUCKET && env.COS_REGION
+          ? `https://${env.COS_BUCKET}.cos.${env.COS_REGION}.myqcloud.com`
+          : null),
     },
     // Local-disk image upload target (order workbench: default when R2 is unset).
     upload: {

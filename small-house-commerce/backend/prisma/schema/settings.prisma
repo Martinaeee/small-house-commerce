@@ -85,4 +85,5 @@ enum StorefrontShellAssetKind {
 enum StorefrontShellAssetStorage {
   LOCAL
   R2
+  COS
 }

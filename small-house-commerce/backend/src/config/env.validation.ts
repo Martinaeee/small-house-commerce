@@ -97,6 +97,14 @@ export const envSchema = z.object({
   R2_SECRET_ACCESS_KEY: z.string().optional(),
   R2_BUCKET: z.string().optional(),
   R2_PUBLIC_BASE_URL: z.string().url().optional(),
+  // Tencent COS (S3-compatible, official SDK). All optional: unset keeps
+  // uploads on local disk. COS_PUBLIC_BASE_URL defaults to the bucket's
+  // default domain when omitted.
+  COS_SECRET_ID: z.string().optional(),
+  COS_SECRET_KEY: z.string().optional(),
+  COS_BUCKET: z.string().optional(),
+  COS_REGION: z.string().optional(),
+  COS_PUBLIC_BASE_URL: z.string().url().optional(),
   // Local-disk image upload (default when R2 is not configured). Files land
   // here and are served by the backend itself at /uploads/*.
   UPLOAD_DIR: z.string().optional(),

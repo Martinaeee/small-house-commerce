@@ -28,7 +28,7 @@ export class AdminLandingPagesController {
     const contentType = req.headers['content-type']?.split(';')[0]?.trim() ?? '';
     const body = await readRawBody(req, maxBytesFor(contentType));
     if (body.length === 0) throw new BadRequestException('Upload body missing — send the file bytes directly');
-    return this.uploads.saveLocal(body, contentType);
+    return this.uploads.saveMedia(body, contentType);
   }
 
   @Get()

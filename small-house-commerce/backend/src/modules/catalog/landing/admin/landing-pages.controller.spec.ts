@@ -57,7 +57,7 @@ const own: MarketingAccount = { id: 'optimizer-a', permissions: ['MARKETING_VIEW
 function mediaFixture(ownerUserId: string | null = own.id) {
   const pages = { getDraft: vi.fn().mockResolvedValue({ ownerUserId }) };
   const uploads = new UploadsService({ get: () => null } as never);
-  const save = vi.spyOn(uploads, 'saveLocal').mockResolvedValue({ url: '/uploads/catalog/test.jpg', key: 'catalog/test.jpg' });
+  const save = vi.spyOn(uploads, 'saveMedia').mockResolvedValue({ url: '/uploads/catalog/test.jpg', key: 'catalog/test.jpg' });
   return { pages, save, controller: new AdminLandingPagesController(pages as never, uploads) };
 }
 function rawRequest(buffer = Buffer.from('raw-file'), contentType = 'image/jpeg; charset=binary'): Request {
