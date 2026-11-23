@@ -4,9 +4,30 @@ Branch: `feat/sunrate-payments-20261120` (worktree `.claude/worktrees/sunrate-pa
 Design: `docs/superpowers/specs/2026-11-20-sunrate-online-payments-design.md`.
 Plan: `docs/superpowers/plans/2026-11-20-sunrate-online-payments.md`.
 
-**Status: development complete, NOT deployed, NOT switched on.** Every
-SUNRATE switch defaults to off; a production deployment that skips the
-env block below behaves exactly as before this branch.
+**Status: deployed to production 2026-11-23 with every switch off.** The
+storefront behaves exactly as before; the module turns on only when the env
+credentials and a method switch are set (see the checklist below).
+
+## Production deployment (2026-11-23)
+
+- Deploy branch `deploy/sunrate-20261123` (merge of the payments branch over
+  the live `staging/luwag-shop-domain` line); server fast-forwarded to
+  `8f0b5493`, both images rebuilt, `up -d backend frontend` (db/caddy
+  untouched).
+- Migrations applied by the backend entrypoint: `20261120100000_add_sunrate_enum`
+  and `20261120150000_add_sunrate_payment_tables`.
+- Pre-deploy database backup:
+  `/root/deploy-backups/sunrate-20261123T0248Z/pre-sunrate.sql.gz` (≈1.0 MB).
+- Rollback images (previous release):
+  `small-house-prod-backend:rollback-pre-sunrate-20261123T0248Z`,
+  `small-house-prod-frontend:rollback-pre-sunrate-20261123T0248Z`.
+- Smoke after deploy: `https://luwag.shop/` 200, `/collections/all-products`
+  200, a real PDP 200, `/admin/login` 200, `/payment-return/PH1` 200 (neutral
+  page); `/api/v1/storefront/payments/methods` answers COD on, CARD/GCASH/BPI
+  off; backend and frontend logs 0 errors; both containers healthy.
+- The `SUNRATE_*`, `PAYMENTS_PUBLIC_BASE_URL` and `QIANYI_PREPAID_VERIFIED`
+  keys are now passed through `docker-compose.prod.yml` (empty/false
+  defaults); set them in `.env.deploy` when it is time to switch on.
 
 ## What was built
 
