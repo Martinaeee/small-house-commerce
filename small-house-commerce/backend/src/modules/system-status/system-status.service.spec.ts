@@ -123,6 +123,33 @@ describe('SystemStatusService access report', () => {
     expect((await service.getAccessReport()).stale).toBe(true);
   });
 
+  it('passes the probe traffic class through and defaults it for older reports', async () => {
+    writeFileSync(
+      accessFile,
+      JSON.stringify({
+        ...report,
+        traffic: { human: 700, bot: 250, warmup: 20, probe: 30 },
+        slowest: [
+          { ms: 1200, uri: '/products/sofa', status: 200, traffic: 'probe' },
+        ],
+      }),
+    );
+    const service = new SystemStatusService({
+      accessFilePath: accessFile,
+      now: () => Date.parse('2026-11-11T09:01:00Z'),
+    });
+
+    const parsed = await service.getAccessReport();
+    expect(parsed.traffic.probe).toBe(30);
+    expect(parsed.slowest[0]?.traffic).toBe('probe');
+
+    // A report written before the collector learned about the probes has no
+    // probe field; it must read as zero rather than fail.
+    writeFileSync(accessFile, JSON.stringify({ ...report, traffic: { human: 970, bot: 30, warmup: 0 } }));
+    const older = await service.getAccessReport();
+    expect(older.traffic.probe).toBe(0);
+  });
+
   it('fails closed with 503 when the report is missing', async () => {
     const service = new SystemStatusService({ accessFilePath: accessFile });
 

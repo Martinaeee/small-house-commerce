@@ -137,6 +137,7 @@ function imageKindLabel(kind: string | null, t: Translate): string | null {
 function trafficLabel(traffic: AdminAccessSlowRequest["traffic"], t: Translate): string {
   if (traffic === "bot") return t("access_diagnostics_traffic_bot");
   if (traffic === "warmup") return t("access_diagnostics_traffic_warmup");
+  if (traffic === "probe") return t("access_diagnostics_traffic_probe");
   return t("access_diagnostics_traffic_human");
 }
 

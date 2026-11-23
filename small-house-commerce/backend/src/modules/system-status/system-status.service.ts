@@ -36,7 +36,7 @@ export interface AccessSlowRequest {
   status: number;
   cache: string;
   referer: string;
-  traffic: "human" | "bot" | "warmup";
+  traffic: "human" | "bot" | "warmup" | "probe";
 }
 
 export interface AccessErrorRow {
@@ -66,7 +66,7 @@ export interface AccessReport {
   windowFirstAt: string | null;
   windowLastAt: string | null;
   requests: number;
-  traffic: { human: number; bot: number; warmup: number };
+  traffic: { human: number; bot: number; warmup: number; probe?: number };
   status5xx: number;
   status4xx: number;
   errorRate5xx: number | null;
@@ -217,6 +217,9 @@ export class SystemStatusService {
         human: asNumber(traffic.human),
         bot: asNumber(traffic.bot),
         warmup: asNumber(traffic.warmup),
+        // The collector only started separating the probes recently, so the
+        // field may be absent from an older report.
+        probe: asNumber(traffic.probe),
       },
       status5xx: asNumber(report.status5xx),
       status4xx: asNumber(report.status4xx),
@@ -396,7 +399,7 @@ function asSlowRequests(value: unknown): AccessSlowRequest[] {
       cache: typeof entry.cache === 'string' ? entry.cache : 'UNKNOWN',
       referer: typeof entry.referer === 'string' ? entry.referer : '',
       traffic:
-        entry.traffic === 'bot' || entry.traffic === 'warmup'
+        entry.traffic === 'bot' || entry.traffic === 'warmup' || entry.traffic === 'probe'
           ? entry.traffic
           : 'human',
     }));

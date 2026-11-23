@@ -357,6 +357,7 @@ export const zh = {
   access_diagnostics_traffic_human: "真实访客",
   access_diagnostics_traffic_bot: "爬虫",
   access_diagnostics_traffic_warmup: "预热脚本",
+  access_diagnostics_traffic_probe: "可用性探针",
   access_diagnostics_from_page: "来自",
   access_diagnostics_kpi_hint_requests: "本窗口内 Caddy 处理的所有请求",
   access_diagnostics_kpi_hint_5xx: "服务端故障，出现任何 5xx 都需要排查",

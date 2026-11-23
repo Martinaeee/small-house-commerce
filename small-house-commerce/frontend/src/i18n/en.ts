@@ -352,6 +352,7 @@ export const en: Record<ZhKey, string> = {
   access_diagnostics_traffic_human: "Visitor",
   access_diagnostics_traffic_bot: "Crawler",
   access_diagnostics_traffic_warmup: "Warm-up",
+  access_diagnostics_traffic_probe: "Availability probe",
   access_diagnostics_from_page: "From",
   access_diagnostics_kpi_hint_requests: "Every request Caddy served in the window",
   access_diagnostics_kpi_hint_5xx:

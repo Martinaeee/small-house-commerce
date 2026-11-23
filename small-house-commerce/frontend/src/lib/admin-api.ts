@@ -2124,7 +2124,7 @@ export interface AdminAccessSlowRequest {
   status: number;
   cache: string;
   referer: string;
-  traffic: "human" | "bot" | "warmup";
+  traffic: "human" | "bot" | "warmup" | "probe";
   image: AdminAccessImageInfo | null;
 }
 
@@ -2135,7 +2135,8 @@ export interface AdminAccessReport {
   windowFirstAt: string | null;
   windowLastAt: string | null;
   requests: number;
-  traffic: { human: number; bot: number; warmup: number };
+  /** `probe` only appears in reports written after the collector learned about it. */
+  traffic: { human: number; bot: number; warmup: number; probe?: number };
   status5xx: number;
   status4xx: number;
   errorRate5xx: number | null;

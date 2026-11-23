@@ -48,6 +48,10 @@ BOT_MARKERS = (
     "google-inspectiontool",
 )
 WARMUP_MARKER = "python-urllib"
+# The synthetic availability probes read the storefront every minute. They are
+# ours, not shoppers: counting them as human traffic would inflate the visitor
+# count and pull the image-cache hit rate down.
+PROBE_MARKER = "luwag-probe"
 
 # Paths no real shopper ever opens: vulnerability scanners probing for
 # WordPress, git metadata, env files and cloud config. Their user agent is
@@ -83,10 +87,12 @@ def is_scanner_path(path: str) -> bool:
 
 
 def classify_ua(ua: str) -> str:
-    """Returns 'warmup', 'bot' or 'human'."""
+    """Returns 'warmup', 'probe', 'bot' or 'human'."""
     lowered = ua.lower()
     if WARMUP_MARKER in lowered:
         return "warmup"
+    if PROBE_MARKER in lowered:
+        return "probe"
     if any(marker in lowered for marker in BOT_MARKERS):
         return "bot"
     return "human"
@@ -211,6 +217,7 @@ def main() -> int:
     image_hit_total = sum(image_hit.values())
     image_miss_total = sum(image_miss.values())
     # Excludes the warm-up script: its requests exist only to create MISSes.
+    # The probes are excluded too — they are our own monitoring, not shoppers.
     real_hit = image_hit["human"] + image_hit["bot"]
     real_miss = image_miss["human"] + image_miss["bot"]
 
@@ -247,6 +254,7 @@ def main() -> int:
             "human": traffic["human"],
             "bot": traffic["bot"],
             "warmup": traffic["warmup"],
+            "probe": traffic["probe"],
         },
         "status5xx": errors_5xx,
         "status4xx": errors_4xx,
