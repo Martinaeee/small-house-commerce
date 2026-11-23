@@ -1,9 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useCart } from "./CartContext";
 import { QuickAddView } from "./QuickAddView";
+import { AddToCartSuccess } from "./AddToCartSuccess";
+import { useDesktopViewport } from "@/components/product/useDesktopViewport";
+import styles from "./AddedSheet.module.css";
 import {
   CartLineThumbnail,
   CartOptionPicker,
@@ -23,6 +27,7 @@ import {
 } from "@/lib/product-selection";
 import type { CartItem, Product } from "@/lib/api";
 import { optimizedUploadImage } from "@/lib/image-url";
+import { productCoverMedia } from "@/lib/product-cover";
 
 /**
  * Slide-in "Your Cart" drawer after every add-to-cart (spec §4.4). Right-side
@@ -41,7 +46,101 @@ const SERVICE_LINES = [
   "Phone confirmation before delivery",
 ];
 
+/**
+ * Pulling the phone sheet up fills the page so the picks stay readable;
+ * dragging it back down folds it. Mounted only while the confirmation is
+ * open, so the size state resets between adds for free.
+ */
+function AddedMobileSheet({
+  closeButtonRef,
+  panelRef,
+  onContinue,
+  onCheckout,
+}: {
+  closeButtonRef: RefObject<HTMLButtonElement | null>;
+  panelRef: RefObject<HTMLDivElement | null>;
+  onContinue: () => void;
+  onCheckout: () => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const dragStartY = useRef<number | null>(null);
+
+  // Two-state snap sheet: a ~60px pull on the handle flips collapsed/full.
+  // The handle captures the pointer so vertical drags keep updating it even
+  // once the finger leaves its 34px hit area.
+  function dragGrabber(event: React.PointerEvent<HTMLElement>) {
+    switch (event.type) {
+      case "pointerdown":
+        dragStartY.current = event.clientY;
+        try {
+          event.currentTarget.setPointerCapture(event.pointerId);
+        } catch {
+          /* jsdom pointerdown without capture support */
+        }
+        break;
+      case "pointermove": {
+        if (dragStartY.current === null) return;
+        const delta = dragStartY.current - event.clientY;
+        if (Math.abs(delta) > 60) {
+          setExpanded(delta > 0);
+          dragStartY.current = event.clientY;
+        }
+        break;
+      }
+      case "pointerup":
+      case "pointercancel":
+        dragStartY.current = null;
+        break;
+    }
+  }
+
+  return (
+    <aside
+      ref={panelRef}
+      data-testid="cart-added-sheet"
+      data-expanded={String(expanded)}
+      className={styles.sheet}
+    >
+      <div
+        data-testid="cart-added-grabber"
+        role="button"
+        tabIndex={0}
+        aria-expanded={expanded}
+        aria-label={expanded ? "Collapse added to cart panel" : "Expand added to cart panel"}
+        className={styles.grabber}
+        onPointerDown={dragGrabber}
+        onPointerMove={dragGrabber}
+        onPointerUp={dragGrabber}
+        onPointerCancel={dragGrabber}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            setExpanded(value => !value);
+          }
+        }}
+      >
+        <span className={styles.handle} aria-hidden="true" />
+        <button
+          ref={closeButtonRef}
+          type="button"
+          onClick={onContinue}
+          aria-label="Close cart"
+          className="absolute right-2 top-0 flex h-8 w-8 items-center justify-center text-ink-secondary hover:text-ink"
+        >
+          <svg viewBox="0 0 16 16" className="h-4 w-4" fill="none" aria-hidden="true">
+            <path d="M3 3l10 10M13 3L3 13" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+          </svg>
+        </button>
+      </div>
+      <AddToCartSuccess onContinue={onContinue} onCheckout={onCheckout} />
+    </aside>
+  );
+}
+
+
 export function CartDrawer() {
+  const router = useRouter();
+  const desktop = useDesktopViewport();
   const {
     cart,
     isOpen,
@@ -60,6 +159,7 @@ export function CartDrawer() {
     openChangeOptions,
     openPicker,
     goToCartView,
+    showAddedView,
   } = useCart();
   const panelRef = useRef<HTMLDivElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
@@ -69,6 +169,7 @@ export function CartDrawer() {
   const [lineError, setLineError] = useState<string | null>(null);
   const [busySlug, setBusySlug] = useState<string | null>(null);
   const [addedSlug, setAddedSlug] = useState<string | null>(null);
+
 
   // Every exit path clears per-line transient state before close, so a
   // reopen never flashes a stale remove-confirm or line error.
@@ -130,12 +231,20 @@ export function CartDrawer() {
     };
   }, [isOpen, handleClose, takeDrawerOpener]);
 
-  // Swapping the body to the Change Options picker unmounts the line trigger
-  // that opened it, dropping focus to <body>; pull focus into the panel's
-  // chrome. Fresh opens are covered by the effect above.
+  // Swapping the body to the Change Options picker or the added confirmation
+  // unmounts the trigger that opened it, dropping focus to <body>; pull focus
+  // into the panel's chrome. Fresh opens are covered by the effect above.
   useEffect(() => {
-    if (isOpen && view === "change") closeButtonRef.current?.focus();
+    if (isOpen && (view === "change" || view === "added")) {
+      closeButtonRef.current?.focus();
+    }
   }, [isOpen, view]);
+
+  /** "Go to cart" leaves the drawer for the cart/checkout path. */
+  const handleCheckout = useCallback(() => {
+    handleClose();
+    router.push("/cart");
+  }, [handleClose, router]);
 
   async function changeQty(item: CartItem, quantity: number) {
     if (busyId) return;
@@ -197,6 +306,38 @@ export function CartDrawer() {
   // shopper actually took instead of always reading Add to Cart.
   const pickerIsOrderNow = pickerIntent === "ORDER_NOW";
 
+  // The confirmation on phones is a content-sized sheet (same geometry as
+  // the variant picker) that pulls up to full height for the picks.
+  if (view === "added" && !desktop) {
+    return (
+      <div
+        className="fixed inset-0 z-50 flex flex-col justify-end"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Added to cart"
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            event.preventDefault();
+            handleClose();
+          }
+        }}
+      >
+        <button
+          type="button"
+          aria-label="Close cart"
+          className="absolute inset-0 bg-ink/40"
+          onClick={handleClose}
+        />
+        <AddedMobileSheet
+          closeButtonRef={closeButtonRef}
+          panelRef={panelRef}
+          onContinue={handleClose}
+          onCheckout={handleCheckout}
+        />
+      </div>
+    );
+  }
+
   return (
     <div
       className="fixed inset-0 z-50"
@@ -209,7 +350,9 @@ export function CartDrawer() {
             : "Add to cart"
           : view === "change"
             ? "Change options"
-            : "Your cart"
+            : view === "added"
+              ? "Added to cart"
+              : "Your cart"
       }
     >
       <button
@@ -223,6 +366,7 @@ export function CartDrawer() {
         className="absolute right-0 top-0 flex h-full w-full max-w-[400px] flex-col bg-card shadow-xl"
       >
         <div className="flex items-center justify-between border-b border-border px-4 py-3">
+        {view === "added" ? null : (
           <h2 className="text-base font-bold uppercase tracking-wide text-ink">
             {view === "picker"
               ? pickerIsOrderNow
@@ -232,6 +376,7 @@ export function CartDrawer() {
                 ? "Change Options"
                 : `Your Cart (${unitCount})`}
           </h2>
+        )}
           <button
             ref={closeButtonRef}
             type="button"
@@ -253,12 +398,16 @@ export function CartDrawer() {
             intent={pickerIntent}
             onClose={handleClose}
             onAdded={() => {
-              goToCartView();
+              // A successful add ends on the same confirmation as a direct
+              // add — never on the cart list.
+              showAddedView();
               // The close button is chrome that survives the view swap;
               // move focus before the Confirm button unmounts.
               closeButtonRef.current?.focus();
             }}
           />
+        ) : view === "added" ? (
+          <AddToCartSuccess onContinue={handleClose} onCheckout={handleCheckout} />
         ) : view === "change" && changeTarget ? (
           <CartOptionPicker
             item={changeTarget}
@@ -407,7 +556,7 @@ export function CartDrawer() {
                         createInitialSelection(product, null),
                       );
                       const price = cardPricePresentation(derived);
-                      const image = product.effectiveCoverMedia;
+                      const image = productCoverMedia(product);
                       const busy = busySlug === product.slug;
                       const added = addedSlug === product.slug;
                       return (

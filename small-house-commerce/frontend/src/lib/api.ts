@@ -13,6 +13,7 @@ import type {
   Schedule,
 } from "./homepage-document";
 import type { Attribution } from "./tracking";
+import { PLACE_ORDER_RESPONSE_BUDGET_MS } from "./checkout-submission";
 import type { LandingContent } from "./marketing-content";
 import { STOREFRONT_TAGS } from "./cache-tags";
 
@@ -22,6 +23,52 @@ export const serverApiUrl = (path: string): string => {
 };
 
 // --- types (mirror the backend storefront responses) -------------------------
+
+/**
+ * The payment choices the storefront offers. COD is the default and stays
+ * available until an operator switches it off.
+ */
+export type PaymentMethodId = "COD" | "CARD" | "GCASH" | "BPI";
+
+export interface PaymentMethodOption {
+  id: PaymentMethodId;
+  enabled: boolean;
+}
+
+/** What the server says about the payment methods right now. */
+export interface PaymentMethodsResponse {
+  codEnabled: boolean;
+  revision: number;
+  methods: PaymentMethodOption[];
+}
+
+/**
+ * The payment handle an online checkout answers with. Card carries a
+ * paySession, the wallets a payUrl; the environment is never guessed.
+ */
+export interface OrderPaymentHandle {
+  attemptId: string;
+  channel: string;
+  env: "test" | "production";
+  paySession?: string;
+  payUrl?: string;
+}
+
+/** What the server says about the payment of one order. */
+export interface PaymentStatusResponse {
+  orderNumber: string;
+  paymentStatus: string;
+  attemptStatus: string | null;
+  /** The gateway environment of the attempt; the card SDK needs it. */
+  env: string | null;
+  paidAt?: string;
+  amount: number;
+  currency: string;
+  /** Present once the payment is verified as paid: the Purchase payload. */
+  value?: number;
+  items?: { skuId: string; quantity: number }[];
+  metaConsent?: boolean;
+}
 
 /**
  * Per-page hero appearance, shared by category and collection landing pages
@@ -170,6 +217,8 @@ export interface ProductDetailBlock {
   sortOrder: number;
   optionValueId?: string | null;
   variantId?: string | null;
+  /** Consecutive rows sharing this key render as one swipeable module. */
+  groupKey?: string | null;
 }
 
 export type ProductFaqAnswerBlock =
@@ -698,6 +747,21 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * F04: a fetch that ran out of its own response budget. `status: 0` keeps it
+ * out of the HTTP error space: callers must treat it as "outcome unknown",
+ * never as an order failure, because the server may still be committing.
+ */
+export class ApiTimeoutError extends Error {
+  readonly status = 0;
+  readonly code = "REQUEST_TIMEOUT";
+
+  constructor() {
+    super("The request timed out.");
+    this.name = "TimeoutError";
+  }
+}
+
 async function assertOk(res: Response): Promise<void> {
   if (res.ok) return;
   let message = `Request failed: ${res.status}`;
@@ -713,13 +777,44 @@ async function assertOk(res: Response): Promise<void> {
   throw new ApiError(message, res.status, code);
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(path, {
-    ...init,
-    headers: { "Content-Type": "application/json", ...init?.headers },
+type RequestOptions = RequestInit & {
+  /** Abort and report an ApiTimeoutError after this many milliseconds. */
+  timeoutMs?: number;
+};
+
+async function request<T>(path: string, init?: RequestOptions): Promise<T> {
+  const { timeoutMs, signal, ...init_ } = init ?? {};
+  const run = async (requestSignal?: AbortSignal): Promise<T> => {
+    const res = await fetch(path, {
+      ...init_,
+      signal: requestSignal,
+      headers: { "Content-Type": "application/json", ...init_?.headers },
+    });
+    await assertOk(res);
+    return res.json() as Promise<T>;
+  };
+  if (!timeoutMs || timeoutMs <= 0) return run(signal ?? undefined);
+
+  // The deadline covers the whole exchange (connect, server work and body),
+  // not just the first byte. Abort releases the socket; the race guarantees
+  // the caller sees a timeout even if fetch ignores the signal.
+  const controller = new AbortController();
+  if (signal) {
+    if (signal.aborted) controller.abort(signal.reason);
+    else signal.addEventListener("abort", () => controller.abort(signal.reason), { once: true });
+  }
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      controller.abort();
+      reject(new ApiTimeoutError());
+    }, timeoutMs);
   });
-  await assertOk(res);
-  return res.json() as Promise<T>;
+  try {
+    return await Promise.race([run(controller.signal), deadline]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 // View beacons return 204 No Content.
@@ -830,13 +925,22 @@ export const api = {
     adId?: string | null;
     campaignId?: string | null;
     adsetId?: string | null;
+    fbclid?: string | null;
+    fbc?: string | null;
+    fbp?: string | null;
+    referrer?: string | null;
     utmSource?: string | null;
     utmMedium?: string | null;
     utmCampaign?: string | null;
     utmContent?: string | null;
     utmTerm?: string | null;
   }) =>
-    request<{ credential: string | null; expiresAt: string | null }>(
+    request<{
+      credential: string | null;
+      expiresAt: string | null;
+      /** Whether this touch is a paid-ad touch that may update last-paid. */
+      paid?: boolean;
+    }>(
       "/api/v1/storefront/marketing-touch",
       {
         method: "POST",
@@ -919,6 +1023,8 @@ export const api = {
      * identify the shopper or to authorize anything outside that draft.
      */
     checkoutDraftToken?: string | null;
+    /** The payment the shopper chose; COD when they chose nothing. */
+    paymentMethod?: PaymentMethodId;
   }) =>
     request<{
       orderNumber: string;
@@ -926,6 +1032,8 @@ export const api = {
       confirmationStatus: string;
       /** The final server-computed total; use this for Purchase value. */
       grandTotal: number;
+      /** Present for an online checkout; absent for cash on delivery. */
+      payment?: OrderPaymentHandle;
     }>(
       "/api/v1/storefront/orders",
       {
@@ -944,9 +1052,68 @@ export const api = {
           metaConsent: input.metaConsent === true,
           idempotencyKey: input.idempotencyKey ?? null,
           checkoutDraftToken: input.checkoutDraftToken ?? null,
+          paymentMethod: input.paymentMethod ?? "COD",
         }),
+        // F04: the order request has its own deadline. A timeout is an
+        // unknown outcome, recovered through checkoutAttemptStatus below.
+        timeoutMs: PLACE_ORDER_RESPONSE_BUDGET_MS,
       },
     ),
+
+  /**
+   * The payment methods the shopper may choose right now. The server owns
+   * the list: the storefront keeps no switch of its own, so a method that
+   * was switched off disappears on the next load.
+   */
+  getPaymentMethods: (): Promise<PaymentMethodsResponse> =>
+    request<PaymentMethodsResponse>("/api/v1/storefront/payments/methods"),
+
+  /**
+   * The payment state of the order the capability cookie names. The cookie
+   * is HttpOnly and path-scoped, so the request has to carry it.
+   */
+  getPaymentStatus: (orderNumber?: string): Promise<PaymentStatusResponse> =>
+    request<PaymentStatusResponse>(
+      `/api/v1/payments/status${
+        orderNumber ? `?orderNumber=${encodeURIComponent(orderNumber)}` : ""
+      }`,
+      { credentials: "include" },
+    ),
+
+  /**
+   * Opens a new attempt for a payment that failed. The capability cookie
+   * names the order; the server refuses while a payment is still open.
+   */
+  retryPayment: (): Promise<{ orderNumber: string; payment: OrderPaymentHandle }> =>
+    request<{ orderNumber: string; payment: OrderPaymentHandle }>(
+      "/api/v1/payments/retry",
+      { method: "POST", credentials: "include" },
+    ),
+
+  /**
+   * F04 result recovery: has the attempt behind this idempotency key produced
+   * an order? The key travels in the body (never the URL) and is the only
+   * capability. ORDERED carries just the number/state/total/items; PENDING
+   * means no order is visible yet.
+   */
+  checkoutAttemptStatus: (
+    idempotencyKey: string,
+  ): Promise<
+    | { state: "PENDING" }
+    | {
+        state: "ORDERED";
+        orderNumber: string;
+        orderStatus: string;
+        grandTotal: number;
+        placedAt: string;
+        items: { skuId: string; quantity: number }[];
+      }
+  > =>
+    request("/api/v1/storefront/orders/attempt-status", {
+      method: "POST",
+      body: JSON.stringify({ idempotencyKey }),
+      timeoutMs: 10_000,
+    }),
 
   /** Display-only; checkout recomputes the authoritative discount. */
   previewPromoCode: (

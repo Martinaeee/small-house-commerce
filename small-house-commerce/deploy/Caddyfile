@@ -15,6 +15,19 @@ http://www.{$DOMAIN} {
 	tls /etc/caddy/certs/luwag.shop_bundle.crt /etc/caddy/certs/luwag.shop.key
 	encode zstd gzip
 
+	# Request log for the 5xx rate and the Next image-cache hit ratio
+	# (`x-nextjs-cache`). Rolled at 50MiB, 5 files kept, so the ceiling is
+	# 250MiB on the data volume. Query strings are kept because the image
+	# optimizer encodes its width there; nothing secret travels in them.
+	log {
+		output file /data/access.log {
+			roll_size 50MiB
+			roll_keep 5
+			roll_keep_for 14d
+		}
+		format json
+	}
+
 	@admin_media_upload path /api/v1/admin/uploads
 	handle @admin_media_upload {
 		request_body {

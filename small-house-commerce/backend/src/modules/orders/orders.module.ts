@@ -2,9 +2,11 @@ import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module.js';
 import { CatalogModule } from '../catalog/catalog.module.js';
 import { MetaCapiModule } from '../meta-capi/meta-capi.module.js';
+import { PaymentsModule } from '../payments/payments.module.js';
 import { QianyiModule } from '../qianyi/qianyi.module.js';
 import { NewsletterModule } from '../newsletter/newsletter.module.js';
 import { OrdersService } from './orders.service.js';
+import { OrderReceiptService } from './order-receipt.service.js';
 import { CustomerRiskService } from './customer-risk.service.js';
 import { StorefrontOrdersController } from './storefront/orders.controller.js';
 import { AdminOrdersController, AdminCustomersController } from './admin/orders.controller.js';
@@ -18,10 +20,18 @@ import { ReturnAcceptanceService } from './return-acceptance.service.js';
  * Orders: guest COD checkout (storefront) and admin list/detail/confirm/cancel.
  * InventoryService is global (InventoryModule), so reserve/release resolve
  * without an explicit import here. AuthModule is imported for its exported
- * JwtModule, which the admin guards inject.
+ * JwtModule, which the admin guards inject. PaymentsModule carries the
+ * per-method switches and the gateway session the checkout needs.
  */
 @Module({
-  imports: [AuthModule, CatalogModule, MetaCapiModule, NewsletterModule, QianyiModule],
+  imports: [
+    AuthModule,
+    CatalogModule,
+    MetaCapiModule,
+    NewsletterModule,
+    PaymentsModule,
+    QianyiModule,
+  ],
   controllers: [
     StorefrontOrdersController,
     AdminOrdersController,
@@ -30,6 +40,7 @@ import { ReturnAcceptanceService } from './return-acceptance.service.js';
   ],
   providers: [
     OrdersService,
+    OrderReceiptService,
     CustomerRiskService,
     OrderVerificationService,
     OrderHandoverService,

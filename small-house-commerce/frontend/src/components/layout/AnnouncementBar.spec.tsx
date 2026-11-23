@@ -8,6 +8,11 @@ vi.mock("@/components/newsletter/newsletterOfferChannel", () => ({
   requestNewsletterOffer: vi.fn(),
 }));
 
+// The bar reads the current route to stay out of the checkout flow.
+vi.mock("next/navigation", () => ({
+  usePathname: () => "/",
+}));
+
 // Task 20 storefront announcement contract (spec §6.2): the bar renders one
 // visible line at a time; null data / disabled block / zero enabled items
 // render nothing; multiple items rotate on rotationMs with hover pause and a

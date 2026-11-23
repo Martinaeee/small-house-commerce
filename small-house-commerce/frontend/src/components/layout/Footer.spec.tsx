@@ -1,10 +1,16 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AnchorHTMLAttributes, ReactNode } from "react";
 import { SiteSettingsProvider } from "@/components/site/SiteSettingsProvider";
 import { DEFAULT_SITE_SETTINGS, type SiteSettings } from "@/lib/site-settings";
 import type { PublicStorefrontShell } from "@/lib/storefront-shell-api";
 import { Footer } from "./Footer";
+
+const navigationMock = vi.hoisted(() => ({ pathname: "/" }));
+
+vi.mock("next/navigation", () => ({
+  usePathname: () => navigationMock.pathname,
+}));
 
 vi.mock("@/lib/fonts", () => ({
   poppins: { className: "font-poppins" },
@@ -111,6 +117,10 @@ function renderFooter(
   );
 }
 
+beforeEach(() => {
+  navigationMock.pathname = "/";
+});
+
 describe("Footer subscribe integration", () => {
   it("renders the subscribe block inside the footer element", () => {
     renderFooter();
@@ -118,6 +128,21 @@ describe("Footer subscribe integration", () => {
     const footer = document.querySelector("footer");
     expect(footer).not.toBeNull();
     expect(footer).toContainElement(screen.getByTestId("newsletter-band"));
+  });
+
+  it("hides the subscribe band on checkout while keeping the footer", () => {
+    navigationMock.pathname = "/checkout";
+    renderFooter();
+
+    expect(screen.queryByTestId("newsletter-band")).toBeNull();
+    expect(document.querySelector("footer")).not.toBeNull();
+  });
+
+  it("also hides the subscribe band on the checkout confirmation route", () => {
+    navigationMock.pathname = "/checkout/confirm";
+    renderFooter();
+
+    expect(screen.queryByTestId("newsletter-band")).toBeNull();
   });
 
   it("puts the subscribe band in its own sage strip above the footer surface", () => {

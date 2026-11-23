@@ -1,6 +1,7 @@
 import type { Category, Product } from "./api";
 import { SITE_URL, absoluteUrl } from "./product-jsonld";
 import { isInStock, productCardPrice } from "./plp";
+import { productCoverMedia } from "./product-cover";
 
 /**
  * Storefront category structured data (spec §4.2 P1): BreadcrumbList,
@@ -52,8 +53,9 @@ export function buildCategoryJsonLd(
       numberOfItems: products.length,
       itemListElement: products.map((product, index) => {
         // The backend-computed effective cover and the shared selection
-        // contract — never a positional images[0]/variants[0] pick.
-        const cover = product.effectiveCoverMedia;
+        // contract — never a positional images[0]/variants[0] pick, and
+        // never a gallery video standing in for the structured-data image.
+        const cover = productCoverMedia(product);
         const price = productCardPrice(product);
         return {
           "@type": "ListItem",

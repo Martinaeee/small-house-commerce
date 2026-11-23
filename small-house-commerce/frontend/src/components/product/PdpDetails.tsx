@@ -11,6 +11,7 @@ import mobileStyles from "./PdpMobile.module.css";
 import { pdpHasVisibleHighlights } from "./pdp-details-visibility";
 import { usePdpPurchase } from "./PdpPurchaseProvider";
 import {
+  groupDetailModules,
   partitionDetailBlocks,
   resolveDetailBlocksForSelection,
   type DetailBlockLike,
@@ -36,9 +37,16 @@ function FoldableDetailMedia({
   const all = featured ? [featured, ...blocks] : [...blocks];
   if (all.length === 0) return null;
 
-  const visible = expanded ? all : all.slice(0, DETAIL_PREVIEW_LIMIT);
-  const canToggle = all.length > DETAIL_PREVIEW_LIMIT;
-  const hiddenCount = all.length - DETAIL_PREVIEW_LIMIT;
+  // A carousel group is one module, so the fold counts modules not rows and
+  // never splits a group across the preview boundary.
+  const modules = groupDetailModules(all);
+  const visible = expanded
+    ? all
+    : modules.slice(0, DETAIL_PREVIEW_LIMIT).flatMap((module) =>
+        module.kind === "single" ? [module.block] : module.blocks,
+      );
+  const canToggle = modules.length > DETAIL_PREVIEW_LIMIT;
+  const hiddenCount = modules.length - DETAIL_PREVIEW_LIMIT;
 
   return (
     <div className="flex flex-col">

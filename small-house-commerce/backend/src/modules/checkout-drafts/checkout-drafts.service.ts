@@ -68,6 +68,7 @@ export interface AdminCheckoutDraftSummary {
   assignee: { id: string; name: string } | null;
   nextFollowUpAt: string | null;
   lastContactedAt: string | null;
+  convertedAt: string | null;
   createdAt: string;
   updatedAt: string;
   expiresAt: string;
@@ -83,6 +84,7 @@ export interface AdminCheckoutDraftFollowUpEvent {
 }
 
 export interface AdminCheckoutDraftDetail extends AdminCheckoutDraftSummary {
+  clientRevision: number;
   snapshot: CheckoutDraftSnapshot;
   productSnapshot: CheckoutDraftProductLine[];
   followUpEvents: AdminCheckoutDraftFollowUpEvent[];
@@ -96,7 +98,7 @@ interface AdminDraftRow {
   contactPhone: string | null;
   productSnapshot: unknown;
   orderId: string | null;
-  order: { id: string; orderNumber: string } | null;
+  order: { id: string; orderNumber: string; createdAt?: Date } | null;
   followUpStatus?: string | null;
   followUpNote?: string | null;
   assigneeId?: string | null;
@@ -128,6 +130,7 @@ function toSummary(row: AdminDraftRow): AdminCheckoutDraftSummary {
     assignee: row.assignee ?? null,
     nextFollowUpAt: row.nextFollowUpAt?.toISOString() ?? null,
     lastContactedAt: row.lastContactedAt?.toISOString() ?? null,
+    convertedAt: row.order?.createdAt?.toISOString() ?? null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
     expiresAt: row.expiresAt.toISOString(),
@@ -320,7 +323,7 @@ export class CheckoutDraftsService {
           createdAt: true,
           updatedAt: true,
           expiresAt: true,
-          order: { select: { id: true, orderNumber: true } },
+          order: { select: { id: true, orderNumber: true, createdAt: true } },
           assignee: { select: { id: true, name: true } },
         },
       }),
@@ -338,7 +341,7 @@ export class CheckoutDraftsService {
     const row = await this.prisma.checkoutDraft.findUnique({
       where: { id },
       include: {
-        order: { select: { id: true, orderNumber: true } },
+        order: { select: { id: true, orderNumber: true, createdAt: true } },
         assignee: { select: { id: true, name: true } },
         followUpEvents: {
           orderBy: { createdAt: 'asc' },
@@ -351,6 +354,7 @@ export class CheckoutDraftsService {
     }
     return {
       ...toSummary(row as unknown as AdminDraftRow),
+      clientRevision: row.clientRevision,
       snapshot: row.snapshot as unknown as CheckoutDraftSnapshot,
       productSnapshot: Array.isArray(row.productSnapshot)
         ? (row.productSnapshot as unknown as CheckoutDraftProductLine[])

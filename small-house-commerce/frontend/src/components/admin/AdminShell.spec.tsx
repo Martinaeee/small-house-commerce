@@ -362,6 +362,7 @@ describe("AdminShell website navigation group", () => {
       "nav_storefront_shell",
       "nav_settings",
       "nav_qianyi",
+      "nav_payments",
       "nav_system_status",
       "nav_team",
       "marketing_title",
@@ -376,6 +377,21 @@ describe("AdminShell website navigation group", () => {
     expect(
       within(desktopNav()).getByRole("link", { name: "nav_team" }),
     ).toHaveAttribute("href", "/admin/team");
+  });
+
+  it("keeps access diagnostics collapsed under System Status until expanded", () => {
+    shellState.permissions = ["SYSTEM_SETTINGS_EDIT"];
+    renderShell();
+
+    expect(within(desktopNav()).queryByText("nav_access_diagnostics")).toBeNull();
+
+    fireEvent.click(
+      within(desktopNav()).getByRole("button", { name: "nav_system_status" }),
+    );
+
+    expect(
+      within(desktopNav()).getByRole("link", { name: "nav_access_diagnostics" }),
+    ).toHaveAttribute("href", "/admin/status/access");
   });
 
   it("hides Team from an account without SYSTEM_SETTINGS_EDIT", () => {

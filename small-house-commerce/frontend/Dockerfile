@@ -57,6 +57,11 @@ ENV API_TARGET=http://backend:3000
 COPY --chown=node:node --from=build /app/public ./public
 COPY --chown=node:node --from=build /app/.next/standalone ./
 COPY --chown=node:node --from=build /app/.next/static ./.next/static
+# The standalone trace ships no .next/cache, and Docker creates a volume
+# mountpoint as root when the path is missing. Owning the directory here keeps
+# the prerender fetch-cache and the image optimizer writable, and a fresh
+# named volume mounted over images/ inherits node as its owner.
+RUN mkdir -p .next/cache && chown node:node .next/cache
 USER node
 EXPOSE 3000
 HEALTHCHECK --interval=10s --timeout=5s --start-period=20s --retries=6 \

@@ -1,8 +1,9 @@
 import type { ReactNode } from "react";
 import { visibleFeatureLines } from "@/lib/feature-lines";
-import type { DetailBlockLike } from "./pdp-detail-blocks";
+import { groupDetailModules, type DetailBlockLike } from "./pdp-detail-blocks";
+import { DetailCarousel } from "./DetailCarousel";
 import { ViewportVideo } from "./ViewportVideo";
-import { optimizedUploadImage } from "@/lib/image-url";
+import { optimizedUploadImage, optimizedUploadImageSrcSet, COLUMN_IMAGE_WIDTHS } from "@/lib/image-url";
 import mobileStyles from "./PdpMobile.module.css";
 
 export type { DetailBlockLike } from "./pdp-detail-blocks";
@@ -34,6 +35,8 @@ function DetailMedia({
     // eslint-disable-next-line @next/next/no-img-element
     <img
       src={optimizedUploadImage(block.url, 1280)}
+      srcSet={optimizedUploadImageSrcSet(block.url, COLUMN_IMAGE_WIDTHS)}
+      sizes="(min-width: 768px) 720px, 100vw"
       alt={block.altText ?? ""}
       loading="lazy"
       className={`${frame} block`}
@@ -54,14 +57,23 @@ export function ProductDetailMedia({
 
   return (
     <div className="flex flex-col">
-      {blocks.map((block, index) => (
-        <DetailMedia
-          key={`${block.url}-${block.type}-${index}`}
-          block={block}
-          index={index}
-          fullBleed={fullBleed}
-        />
-      ))}
+      {groupDetailModules(blocks).map((module, index) =>
+        module.kind === "single" ? (
+          <DetailMedia
+            key={`${module.block.url}-${module.block.type}-${index}`}
+            block={module.block}
+            index={index}
+            fullBleed={fullBleed}
+          />
+        ) : (
+          <DetailCarousel
+            key={module.groupKey}
+            blocks={module.blocks}
+            fullBleed={fullBleed}
+            index={index}
+          />
+        ),
+      )}
     </div>
   );
 }

@@ -9,7 +9,8 @@ import { copyText } from '@/lib/clipboard';
 vi.mock('@/components/admin/AdminAuthProvider', () => ({ useAdminAuth: () => ({ admin: { id: 'u1', name: 'Operator', permissions: ['MARKETING_VIEW_OWN','MARKETING_MANAGE_OWN'] } }) }));
 vi.mock('@/lib/marketing-api', async load => ({ ...await load(), marketingApi: { linkContext: vi.fn(), createLink: vi.fn(), cloneLink: vi.fn(), createShortLink: vi.fn() } }));
 vi.mock('@/lib/clipboard', () => ({ copyText: vi.fn(async () => false) }));
-const row: CampaignLinkRow = { id:'l1', code:'code1', adid:'FB-OP-1-261103-01', name:'Post', sourceType:'FB_POST', productId:'p1', productName:'Chair', productCode:null, productThumbnailUrl:null, variantId:null, variantNameSnapshot:null, landingPageId:null, pageName:null, ownerUserId:'u1', ownerName:'Operator', aid:'OP-1', path:'/products/chair?cl=code1', status:'ACTIVE', version:0, createdAt:'2026-11-03T01:00:00Z', updatedAt:'2026-11-03T01:00:00Z', postDate:'2026-11-03',postUrl:null,archivedAt:null };
+const row: CampaignLinkRow = { id:'l1', code:'code1', cl:'code1', cleanPath:null, adid:'FB-OP-1-261103-01', name:'Post', sourceType:'FB_POST', attributionMode:'CL', metaUrlParameters:null, productId:'p1', productName:'Chair', productCode:null, productThumbnailUrl:null, variantId:null, variantNameSnapshot:null, landingPageId:null, pageName:null, ownerUserId:'u1', ownerName:'Operator', aid:'OP-1', path:'/products/chair?cl=code1', status:'ACTIVE', version:0, createdAt:'2026-11-03T01:00:00Z', updatedAt:'2026-11-03T01:00:00Z', postDate:'2026-11-03',postUrl:null,archivedAt:null };
+const metaRow: CampaignLinkRow = { ...row, id:'l2', sourceType:'META_AD', adid:'AD-OP-1-261111-01', cleanPath:'/products/chair', metaUrlParameters:'cl=code1&aid=OP-1&adid={{ad.id}}', postDate:null };
 beforeEach(() => {
  vi.clearAllMocks(); localStorage.clear(); vi.useFakeTimers({toFake:['Date']}); vi.setSystemTime(new Date('2026-11-03T02:00:00Z'));
  vi.mocked(marketingApi.linkContext).mockResolvedValue({products:[{id:'p1',name:'Chair',productCode:null,slug:'chair',thumbnailUrl:null,variants:[],landingPages:[]}]});
@@ -53,6 +54,50 @@ describe('post creation and dedicated links',()=>{
   await screen.findByTestId('link-builder-product-current');fireEvent.click(screen.getByRole('button',{name:'保存并生成链接'}));
   expect(await screen.findByRole('alert')).toHaveTextContent('不要立即重复创建');
   expect(marketingApi.createLink).toHaveBeenCalledTimes(1);
+ });
+ it('creates META_AD links as CL with no manual ad fields', async () => {
+  wrap(<CreateCampaignLinkDialog productId="p1" onClose={vi.fn()} onSaved={vi.fn()}/>);
+  await screen.findByTestId('link-builder-product-current');
+  fireEvent.change(screen.getByLabelText('内部名称'), { target: { value: 'TB004' } });
+  fireEvent.click(screen.getByRole('button', { name: '保存并生成链接' }));
+  await waitFor(() => expect(marketingApi.createLink).toHaveBeenCalled());
+  const input = vi.mocked(marketingApi.createLink).mock.calls[0][0];
+  expect(input).toMatchObject({ sourceType: 'META_AD', attributionMode: 'CL', name: 'TB004' });
+  expect(input).not.toHaveProperty('adId');
+  expect(input).not.toHaveProperty('campaignId');
+  expect(input).not.toHaveProperty('adsetId');
+ });
+ it('keeps FB_POST metadata in the payload', async () => {
+  wrap(<CreateCampaignLinkDialog productId="p1" defaultSourceType="FB_POST" copyFrom={{ ...row, sourceType: 'FB_POST', campaignId: 'campaign-A', adsetId: 'set-A', adId: '120200000000001', utmSource: 'facebook' }} onClose={vi.fn()} onSaved={vi.fn()}/>);
+  await screen.findByTestId('link-builder-product-current');
+  fireEvent.change(screen.getByLabelText('发帖日期'), { target: { value: '2026-11-03' } });
+  expect(screen.getByLabelText('发帖日期')).toHaveValue('2026-11-03');
+  expect(screen.getByRole('button', { name: '保存并生成链接' })).toBeEnabled();
+  fireEvent.submit(screen.getByLabelText('发帖日期').closest('form')!);
+  await waitFor(() => expect(marketingApi.cloneLink).toHaveBeenCalled());
+  expect(vi.mocked(marketingApi.cloneLink).mock.calls[0][1]).toMatchObject({
+    sourceType: 'FB_POST', attributionMode: 'CL',
+    campaignId: 'campaign-A', adsetId: 'set-A', adId: '120200000000001', utmSource: 'facebook',
+  });
+ });
+ it('shows the META_AD three fields with the backend Meta template', async () => {
+  vi.mocked(marketingApi.createShortLink).mockResolvedValue({path:'/s/abc123',code:'abc123',target:metaRow.path});
+  wrap(<PostLinkResultDialog link={metaRow} onClose={vi.fn()} onContinue={vi.fn()}/>);
+  expect(screen.getByLabelText('Landing Page URL')).toHaveValue(new URL(metaRow.cleanPath!, window.location.origin).href);
+  expect(screen.getByLabelText('CL')).toHaveValue('code1');
+  expect(screen.getByLabelText('AID')).toHaveValue('OP-1');
+  const params = screen.getByLabelText(/Meta 网址参数/) as HTMLTextAreaElement;
+  expect(params.value).toBe('cl=code1&aid=OP-1&adid={{ad.id}}');
+  expect(params.value).not.toContain('%7B');
+  expect(marketingApi.createShortLink).not.toHaveBeenCalled();
+ });
+ it('keeps FB_POST on the legacy full link and short link', async () => {
+  vi.mocked(marketingApi.createShortLink).mockResolvedValue({path:'/s/abc123',code:'abc123',target:row.path});
+  wrap(<PostLinkResultDialog link={row} onClose={vi.fn()} onContinue={vi.fn()}/>);
+  await waitFor(()=>expect(screen.getByLabelText('该帖专属短链')).toHaveValue(new URL('/s/abc123',window.location.origin).href));
+  expect(screen.getByLabelText('完整投放链接')).toHaveValue(new URL(row.path,window.location.origin).href);
+  expect(screen.queryByLabelText('Landing Page URL')).not.toBeInTheDocument();
+  expect(screen.queryByLabelText('Meta 网址参数')).not.toBeInTheDocument();
  });
  it('keeps the saved long link when shortening fails and retries only shortening',async()=>{
   vi.mocked(marketingApi.createShortLink).mockRejectedValueOnce(new Error('offline')).mockResolvedValue({path:'/s/abc123',code:'abc123',target:row.path});

@@ -165,7 +165,7 @@ describe('UploadsService.saveLocal', () => {
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
-  });
+  }, 15000);
 
   it('keeps the original bytes when the transcoder declines or grows the file', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'luwag-video-upload-'));

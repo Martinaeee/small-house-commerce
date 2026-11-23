@@ -3,7 +3,7 @@ import { SectionPlaceholder } from "./SectionPlaceholder";
 import { SectionHeading, SectionShell, SmartLink } from "./sectionShell";
 import { poppinsMedium, storySerif } from "@/lib/fonts";
 import type { SectionProps } from "./sectionRegistry";
-import { optimizedUploadImage } from "@/lib/image-url";
+import { optimizedUploadImage, optimizedUploadImageSrcSet, FULL_BLEED_IMAGE_WIDTHS } from "@/lib/image-url";
 
 const str = (v: unknown): string => (typeof v === "string" ? v : "");
 
@@ -165,6 +165,8 @@ export function BrandStorySection({ section, previewDevice }: SectionProps) {
             // eslint-disable-next-line @next/next/no-img-element
             <img
               src={optimizedUploadImage(image, 1440)}
+              srcSet={optimizedUploadImageSrcSet(image, FULL_BLEED_IMAGE_WIDTHS)}
+              sizes="(min-width: 1024px) 50vw, 100vw"
               alt={imageAlt || heading}
               loading="lazy"
               className="h-full w-full object-cover"

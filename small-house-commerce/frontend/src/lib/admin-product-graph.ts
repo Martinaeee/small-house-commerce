@@ -75,6 +75,7 @@ export function deserializeProduct(p: AdminProduct): ProductFormValue {
       sortOrder: String(index),
       ...(block.optionValueId ? { optionValueId: block.optionValueId } : {}),
       ...(block.variantId ? { variantId: block.variantId } : {}),
+      ...(block.groupKey ? { groupKey: block.groupKey } : {}),
     })),
     faq: p.faq
       ? {

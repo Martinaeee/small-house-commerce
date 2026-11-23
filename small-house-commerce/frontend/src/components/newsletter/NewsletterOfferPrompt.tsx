@@ -97,9 +97,6 @@ export function NewsletterOfferPrompt({
         <span className="block text-sm font-semibold leading-snug text-cta">
           {title}
         </span>
-        <span className="mt-0.5 block text-xs leading-snug text-ink-secondary">
-          Subscribe to reveal your code — it is applied to this order for you.
-        </span>
       </span>
       <span
         aria-hidden="true"

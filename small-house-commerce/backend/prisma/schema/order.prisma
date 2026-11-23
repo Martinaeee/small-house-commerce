@@ -56,6 +56,8 @@ enum PaymentStatus {
 enum PaymentMethod {
   COD
   AIRWALLEX
+  /// Gateway payments processed through the SUNRATE acquiring module.
+  SUNRATE
 }
 
 enum SourceType {
@@ -201,6 +203,17 @@ model Order {
   assignedAt             DateTime?          @map("assigned_at") @db.Timestamptz(3)
   createdAt              DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt              DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
+  /// Start of the checkout draft (shopper or operator conversion). The
+  /// workbench displays it without backdating actual order creation or
+  /// analytics. Persisted here so it survives draft retention cleanup.
+  draftStartedAt         DateTime?          @map("draft_started_at") @db.Timestamptz(3)
+  /// True only when an operator converted the draft from the workbench. A
+  /// shopper finishing their own checkout keeps this false so the list badges
+  /// only the manual conversions.
+  draftConvertedManually Boolean            @default(false) @map("draft_converted_manually")
+  /// Effective queue clock: draftStartedAt for conversions, otherwise the
+  /// same database timestamp as createdAt. Materialized for indexed paging.
+  workbenchStartedAt     DateTime           @default(now()) @map("workbench_started_at") @db.Timestamptz(3)
   preferredDeliveryDate  DateTime?          @map("preferred_delivery_date") @db.Date
   customerNote           String?            @map("customer_note")
   promoCode              String?            @map("promo_code")
@@ -235,6 +248,7 @@ model Order {
   mergeRecordsMerged      OrderMergeRecord[]            @relation("MergedOrder")
   attribution             OrderAttribution?
   payments                Payment[]
+  sunrateAttempts         SunratePaymentAttempt[]
   reservations            InventoryReservation[]
   shipments               Shipment[]
   promoRedemption         PromoCodeRedemption?
@@ -251,10 +265,31 @@ model Order {
   @@index([paymentStatus])
   @@index([assignedToId])
   @@index([createdAt])
+  @@index([workbenchStartedAt, id])
   @@index([trackingSessionId])
   @@index([nextFollowUpAt])
   @@index([orderStatus, handoverCompletedAt])
   @@map("orders")
+}
+
+/// Permanent-delete audit. Deliberately no FK to Order: the row must survive
+/// the deletion it records.
+model OrderDeletionLog {
+  id            String   @id @default(uuid(7)) @db.Uuid
+  orderId       String   @map("order_id") @db.Uuid
+  orderNumber   String   @map("order_number")
+  orderStatus   String   @map("order_status")
+  customerId    String?  @map("customer_id") @db.Uuid
+  grandTotal    Decimal? @map("grand_total") @db.Decimal(10, 2)
+  /// none = never reached Qianyi; closed = external sales order closed first.
+  qianyiAction  String?  @map("qianyi_action")
+  snapshot      Json
+  operatorId    String?  @map("operator_id") @db.Uuid
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@index([orderId])
+  @@index([createdAt])
+  @@map("order_deletion_log")
 }
 
 /// §46 order notes — internal, append-only service notes (order workbench).
@@ -507,6 +542,17 @@ model OrderAttribution {
   sourceType               SourceType @map("source_type")
   /** The order's advertising number: null for organic/direct orders. */
   adid                     String?    @map("adid") @db.VarChar(120)
+  /**
+   * Where the advertising number came from: LINK (a verified CampaignLink),
+   * META_DYNAMIC (the ad ID the click carried), META_DYNAMIC_FALLBACK,
+   * LEGACY, or NONE.
+   */
+  adidSource               String?    @map("adid_source") @db.VarChar(24)
+  /**
+   * Why no advertising number was frozen. Never fabricate a value: a real
+   * order without an ad ID stays attributable by AID and records the reason.
+   */
+  adidMissingReason        String?    @map("adid_missing_reason") @db.VarChar(48)
   optimizerId              String?    @map("optimizer_id") @db.Uuid
   aidSnapshot              String?    @map("aid_snapshot")
   ownerNameSnapshot        String?    @map("owner_name_snapshot")
@@ -530,6 +576,15 @@ model OrderAttribution {
   utmContent               String?    @map("utm_content")
   utmTerm                  String?    @map("utm_term")
   fbclid                   String?
+  /// Immutable first paid touch snapshot (JSON claims without the raw token).
+  firstTouch               Json?      @map("first_touch")
+  /// Immutable last paid touch snapshot (JSON claims without the raw token).
+  lastPaidTouch            Json?      @map("last_paid_touch")
+  /// LAST_PAID, FIRST_ONLY, or null for orders created before this release.
+  attributionModel         String?    @map("attribution_model") @db.VarChar(20)
+  attributionCapturedAt    DateTime?  @map("attribution_captured_at") @db.Timestamptz(3)
+  /// SHA-256 of the last credential, never the credential itself.
+  attributionTouchId       String?    @map("attribution_touch_id") @db.VarChar(64)
   attributedAt             DateTime   @default(now()) @map("attributed_at") @db.Timestamptz(3)
 
   order Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
@@ -555,6 +610,7 @@ model Payment {
   createdAt DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
 
   order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  sunrateAttempt SunratePaymentAttempt?
 
   @@index([orderId])
   @@map("payments")

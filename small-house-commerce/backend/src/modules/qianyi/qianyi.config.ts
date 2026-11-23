@@ -17,6 +17,12 @@ export interface QianyiConfig {
   /** Local Warehouse row that books Qianyi's shipments; null = first active. */
   localWarehouseId: string | null;
   logistics: string;
+  /**
+   * Whether Qianyi's prepaid payment enum for online (SUNRATE) orders has
+   * been confirmed with Qianyi. Until it has, an online order that is paid
+   * is held back instead of being pushed with the wrong payment type.
+   */
+  prepaidVerified: boolean;
 }
 
 export function readQianyiConfig(config: ConfigService): QianyiConfig {
@@ -28,6 +34,9 @@ export function readQianyiConfig(config: ConfigService): QianyiConfig {
   const logistics = config.get<string>('qianyi.logistics') ?? '';
   const localWarehouseId = config.get<string>('qianyi.localWarehouseId') ?? null;
   const flag = String(config.get<string>('qianyi.enabled') ?? 'false').trim().toLowerCase();
+  const prepaidFlag = String(config.get<string>('qianyi.prepaidVerified') ?? 'false')
+    .trim()
+    .toLowerCase();
   const complete = Boolean(
     appId && secret && shop && warehouseId > 0 && warehouse && logistics,
   );
@@ -41,5 +50,6 @@ export function readQianyiConfig(config: ConfigService): QianyiConfig {
     warehouse,
     localWarehouseId,
     logistics,
+    prepaidVerified: prepaidFlag === 'true' || prepaidFlag === '1',
   };
 }

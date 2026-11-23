@@ -1,6 +1,8 @@
 import {
+  DEFAULT_COLUMN_ORDER,
   DEFAULT_HIDDEN_COLUMNS,
   WORKBENCH_COLUMNS,
+  normalizeColumnOrder,
   type WorkbenchColumnKey,
 } from "./columns";
 
@@ -14,6 +16,8 @@ const VIEWS_KEY = "luwag_orders_views_v1";
 export interface ColumnPrefs {
   hidden: WorkbenchColumnKey[];
   widths: Record<string, number>;
+  /** The reading order the operator dragged the columns into. */
+  order: WorkbenchColumnKey[];
 }
 
 export interface SavedView {
@@ -23,6 +27,7 @@ export interface SavedView {
   filters: Record<string, string>;
   hidden: WorkbenchColumnKey[];
   widths: Record<string, number>;
+  order: WorkbenchColumnKey[];
 }
 
 function safeStorage(): Storage | null {
@@ -55,21 +60,28 @@ function sanitizeWidths(value: unknown): Record<string, number> {
   return widths;
 }
 
+function defaultPrefs(): ColumnPrefs {
+  return {
+    hidden: [...DEFAULT_HIDDEN_COLUMNS],
+    widths: {},
+    order: [...DEFAULT_COLUMN_ORDER],
+  };
+}
+
 export function readColumnPrefs(): ColumnPrefs {
   const storage = safeStorage();
-  if (!storage) {
-    return { hidden: [...DEFAULT_HIDDEN_COLUMNS], widths: {} };
-  }
+  if (!storage) return defaultPrefs();
   try {
     const raw = storage.getItem(COLUMN_PREFS_KEY);
-    if (!raw) return { hidden: [...DEFAULT_HIDDEN_COLUMNS], widths: {} };
+    if (!raw) return defaultPrefs();
     const parsed = JSON.parse(raw) as Partial<ColumnPrefs>;
     return {
       hidden: sanitizeHidden(parsed.hidden),
       widths: sanitizeWidths(parsed.widths),
+      order: normalizeColumnOrder(parsed.order),
     };
   } catch {
-    return { hidden: [...DEFAULT_HIDDEN_COLUMNS], widths: {} };
+    return defaultPrefs();
   }
 }
 
@@ -79,7 +91,11 @@ export function writeColumnPrefs(prefs: ColumnPrefs): void {
   try {
     storage.setItem(
       COLUMN_PREFS_KEY,
-      JSON.stringify({ hidden: prefs.hidden, widths: prefs.widths }),
+      JSON.stringify({
+        hidden: prefs.hidden,
+        widths: prefs.widths,
+        order: normalizeColumnOrder(prefs.order),
+      }),
     );
   } catch {
     // Storage full or blocked: the layout simply is not remembered.
@@ -105,6 +121,7 @@ export function readViews(): SavedView[] {
         filters: view.filters && typeof view.filters === "object" ? view.filters : {},
         hidden: sanitizeHidden(view.hidden),
         widths: sanitizeWidths(view.widths),
+        order: normalizeColumnOrder(view.order),
       }));
   } catch {
     return [];

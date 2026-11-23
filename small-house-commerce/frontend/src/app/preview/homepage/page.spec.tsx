@@ -31,7 +31,7 @@ const { notFoundMock } = vi.hoisted(() => {
   return { notFoundMock };
 });
 
-vi.mock("next/navigation", () => ({ notFound: notFoundMock }));
+vi.mock("next/navigation", () => ({ notFound: notFoundMock, usePathname: () => "/" }));
 vi.mock("@/lib/fonts", () => ({
   poppins: { className: "font-poppins", variable: "--font-poppins" },
 }));

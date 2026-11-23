@@ -4,6 +4,8 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest
 import { PrismaService } from '../../prisma/prisma.service.js';
 import type { OrderStatus, PaymentStatus } from '../../generated/prisma/client.js';
 import { MarketingReportService } from './marketing-report.service.js';
+import { MarketingAttributionReportService } from './marketing-attribution-report.service.js';
+import type { MarketingReportQuery } from './dto/marketing-report.dto.js';
 import { AdCostsService } from './ad-costs.service.js';
 import { CampaignLinksService } from './campaign-links.service.js';
 import { OptimizersService } from './optimizers.service.js';
@@ -23,7 +25,7 @@ describe.skipIf(!database)('marketing report PostgreSQL cohorts', () => {
   const tag = randomUUID();
   const own = () => ({ id: ownerId, permissions: ['MARKETING_VIEW_OWN'] });
   const writer = () => ({ id: ownerId, permissions: ['MARKETING_VIEW_OWN', 'MARKETING_MANAGE_OWN'] });
-  const query = (extra = {}) => ({ from: '2026-10-05', to: '2026-10-05', groupBy: 'LINK' as const, page: 1, pageSize: 20, ...extra });
+  const query = (extra: Partial<MarketingReportQuery> = {}): MarketingReportQuery => ({ from: '2026-10-05', to: '2026-10-05', groupBy: 'LINK', mode: 'FLAT', sortBy: 'NAME', sortDirection: 'ASC', page: 1, pageSize: 20, ...extra });
 
   beforeAll(async () => {
     prisma = createMarketingTestPrisma(database!); await prisma.$connect();
@@ -33,7 +35,7 @@ describe.skipIf(!database)('marketing report PostgreSQL cohorts', () => {
     productId = (await prisma.product.create({ data: { categoryId, name: 'Report parent', productCode: `REPORT-${tag}`, slug: `report-${tag}`, status: 'ACTIVE', solutions: [] } })).id;
     customerId = (await prisma.customer.create({ data: { name: 'Private report customer', normalizedPhone: `report-fixture-${tag}` } })).id;
     warehouseId = (await prisma.warehouse.create({ data: { name: `Report warehouse ${tag}` } })).id;
-    report = new MarketingReportService(prisma);
+    report = new MarketingReportService(prisma, new MarketingAttributionReportService(prisma));
     costs = new AdCostsService(prisma, new CampaignLinksService(prisma, new OptimizersService(prisma)));
   }, 20000);
   afterEach(() => vi.useRealTimers());
@@ -62,12 +64,12 @@ describe.skipIf(!database)('marketing report PostgreSQL cohorts', () => {
     vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-10-13T01:00:00Z'));
     return { page, link };
   }
-  async function order(destination: Awaited<ReturnType<typeof target>>, extra: { status?: OrderStatus; payment?: PaymentStatus; value?: string; touchedAt?: string | null; createdAt?: string; source?: 'REGISTERED' | 'DIRECT' | 'LEGACY' | 'UNVERIFIED'; shipments?: (string | null)[]; confirmationHistory?: boolean; risk?: boolean } = {}) {
+  async function order(destination: Awaited<ReturnType<typeof target>>, extra: { status?: OrderStatus; payment?: PaymentStatus; value?: string; touchedAt?: string | null; createdAt?: string; source?: 'REGISTERED' | 'DIRECT' | 'LEGACY' | 'UNVERIFIED'; shipments?: (string | null)[]; confirmationHistory?: boolean; risk?: boolean; adId?: string; adid?: string; adidSource?: string } = {}) {
     const source = extra.source ?? 'REGISTERED';
     const value = extra.value ?? '10000.00';
     const row = await prisma.order.create({ data: {
       orderNumber: `REPORT-${randomUUID()}`, customerId, subtotal: value, discountTotal: 0, shippingTotal: 0, grandTotal: value, orderStatus: extra.status ?? 'SHIPPING', paymentStatus: extra.payment ?? 'COD_PENDING', createdAt: new Date(extra.createdAt ?? '2026-10-06T01:00:00Z'), customerClassification: extra.risk ? 'RPT' : 'NEW',
-      attribution: { create: { optimizerId: ownerId, aidSnapshot: 'REPORT-OWNER', ownerNameSnapshot: 'Report owner', productId, productNameSnapshot: 'Report parent', sourceType: source === 'DIRECT' ? 'DIRECT' : 'META_AD', linkId: source === 'REGISTERED' ? destination.link.id : null, landingPageId: destination.page.id, touchedAt: source === 'UNVERIFIED' ? null : new Date(extra.touchedAt ?? '2026-10-04T16:30:00Z'), legacy: source === 'UNVERIFIED' ? null : source === 'LEGACY' } },
+      attribution: { create: { optimizerId: ownerId, aidSnapshot: 'REPORT-OWNER', ownerNameSnapshot: 'Report owner', adId: extra.adId ?? null, adid: extra.adid ?? null, adidSource: extra.adidSource ?? null, productId, productNameSnapshot: 'Report parent', sourceType: source === 'DIRECT' ? 'DIRECT' : 'META_AD', linkId: source === 'REGISTERED' ? destination.link.id : null, landingPageId: destination.page.id, touchedAt: source === 'UNVERIFIED' ? null : new Date(extra.touchedAt ?? '2026-10-04T16:30:00Z'), legacy: source === 'UNVERIFIED' ? null : source === 'LEGACY' } },
       ...(extra.confirmationHistory ? { statusHistory: { create: { statusDomain: 'CONFIRMATION_STATUS', newStatus: 'CONFIRMED', source: 'ADMIN' } } } : {}),
       ...(extra.risk ? { riskFlags: { create: { flagType: 'POSSIBLE_DUPLICATE', resolved: false } } } : {}),
     } });
@@ -143,7 +145,7 @@ describe.skipIf(!database)('marketing report PostgreSQL cohorts', () => {
     expect(links.rows.map(row => row.visits)).toEqual([1, 1]);
     const pages = await report.report(query({ ...selected, groupBy: 'PAGE' }), own());
     expect(pages.rows).toHaveLength(1); expect(pages.rows[0]).toMatchObject({ visits: 1, pageTotalVisits: 2 });
-    for (const groupBy of ['PRODUCT', 'OWNER']) expect((await report.report(query({ ...selected, groupBy }), own())).rows[0]).toMatchObject({ visits: 1 });
+    for (const groupBy of ['PRODUCT', 'OWNER'] as const) expect((await report.report(query({ ...selected, groupBy }), own())).rows![0]).toMatchObject({ visits: 1 });
   });
 
   it('attributes first-party funnel events to their registered links and ignores unattributed ones', async () => {
@@ -219,5 +221,70 @@ describe.skipIf(!database)('marketing report PostgreSQL cohorts', () => {
     expect(missing.rows[0]).toMatchObject({ postDate: null });
     const ranged = await report.report(query({ postDateFrom: '2026-10-01', linkIds: [t.link.id] }), own());
     expect(ranged.rows).toHaveLength(0);
+  });
+
+  it('splits ad IDs on one CL and keeps CL visits out of the AdID view', async () => {
+    const t = await target();
+    await prisma.analyticsEvent.createMany({ data: [
+      { eventName: 'PAGE_VIEW', sessionId: 'ad-1', pageUrl: 'https://luwag.shop/products/x', pagePath: '/products/x', deviceType: 'mobile', eventDay: new Date('2026-10-05T00:00:00Z'), campaignLinkId: t.link.id, adId: '120200000000001', optimizerId: ownerId, aidSnapshot: 'REPORT-OWNER', attributionPaid: true, productId },
+      { eventName: 'PAGE_VIEW', sessionId: 'ad-2', pageUrl: 'https://luwag.shop/products/x', pagePath: '/products/x', deviceType: 'mobile', eventDay: new Date('2026-10-05T00:00:00Z'), campaignLinkId: t.link.id, adId: '120200000000002', optimizerId: ownerId, aidSnapshot: 'REPORT-OWNER', attributionPaid: true, productId },
+    ] });
+    await order(t, { adId: '120200000000001', adid: '120200000000001', adidSource: 'META_DYNAMIC' });
+    const result = await report.report(query({ groupBy: 'ADID', linkIds: [t.link.id] }), own());
+    expect(result.rows!).toHaveLength(2);
+    expect(result.rows!.map((row) => row.adId).sort()).toEqual(['120200000000001', '120200000000002']);
+    expect(result.rows!.every((row) => row.visits === null)).toBe(true);
+    expect(result.rows!.map((row) => row.adVisits)).toEqual([1, 1]);
+    expect(result.rows![0]).toMatchObject({ ownerName: 'Report owner', aid: 'REPORT-OWNER' });
+  });
+
+  it('takes the AdID row owner from verified claims, not the link owner', async () => {
+    const t = await target();
+    await prisma.analyticsEvent.create({
+      data: { eventName: 'PAGE_VIEW', sessionId: 'claimed-owner', pageUrl: 'https://luwag.shop/products/x', pagePath: '/products/x', deviceType: 'mobile', eventDay: new Date('2026-10-05T00:00:00Z'), campaignLinkId: t.link.id, adId: '120200000000009', optimizerId: otherId, aidSnapshot: 'OTHER-OWNER', attributionPaid: true, productId },
+    });
+    const result = await report.report(query({ groupBy: 'ADID', linkIds: [t.link.id] }), own());
+    expect(result.rows![0]).toMatchObject({ ownerName: 'Report other', aid: 'OTHER-OWNER' });
+  });
+
+  it('counts distinct links and ad IDs for the AID view without double counting', async () => {
+    const first = await target();
+    const second = await target();
+    const events = [
+      { link: first.link.id, adId: '120200000000001', session: 'aid-1' },
+      { link: first.link.id, adId: '120200000000002', session: 'aid-2' },
+      { link: second.link.id, adId: '120200000000003', session: 'aid-3' },
+    ];
+    await prisma.analyticsEvent.createMany({ data: events.map((event) => ({
+      eventName: 'PAGE_VIEW' as const, sessionId: event.session, pageUrl: 'https://luwag.shop/products/x',
+      pagePath: '/products/x', deviceType: 'mobile', eventDay: new Date('2026-10-05T00:00:00Z'),
+      campaignLinkId: event.link, adId: event.adId, optimizerId: ownerId,
+      aidSnapshot: 'REPORT-OWNER', attributionPaid: true, productId,
+    })) });
+    await order(first, { adId: '120200000000001', adid: '120200000000001', adidSource: 'META_DYNAMIC' });
+    await order(second, { adId: '120200000000003', adid: '120200000000003', adidSource: 'META_DYNAMIC' });
+    const result = await report.report(query({ groupBy: 'AID', linkIds: [first.link.id, second.link.id] }), own());
+    expect(result.rows!).toHaveLength(1);
+    expect(result.rows![0]).toMatchObject({ aid: 'REPORT-OWNER', linkCount: 2, adCount: 3, adVisits: 3 });
+  });
+
+  it('does not multiply order amounts by event rows in ADID or AID views', async () => {
+    const t = await target();
+    await prisma.analyticsEvent.createMany({ data: [
+      { eventName: 'PAGE_VIEW', sessionId: 'no-double-1', pageUrl: 'https://luwag.shop/products/x', pagePath: '/products/x', deviceType: 'mobile', eventDay: new Date('2026-10-05T00:00:00Z'), campaignLinkId: t.link.id, adId: '120200000000010', optimizerId: ownerId, aidSnapshot: 'REPORT-OWNER', attributionPaid: true, productId },
+      { eventName: 'PRODUCT_VIEW', sessionId: 'no-double-1', pageUrl: 'https://luwag.shop/products/x', pagePath: '/products/x', deviceType: 'mobile', eventDay: new Date('2026-10-05T00:00:00Z'), campaignLinkId: t.link.id, adId: '120200000000010', optimizerId: ownerId, aidSnapshot: 'REPORT-OWNER', attributionPaid: true, productId },
+    ] });
+    await order(t, { adId: '120200000000010', adid: '120200000000010', adidSource: 'META_DYNAMIC', value: '1000.00' });
+    const selected = { linkIds: [t.link.id] };
+    const adid = await report.report(query({ ...selected, groupBy: 'ADID' }), own());
+    expect(adid.rows![0]).toMatchObject({
+      adVisits: 1, productViews: 1, submittedOrders: 1, validOrders: 1,
+      validOrderValuePhp: '1000.00', signedGrossPhp: '0.00',
+    });
+    const aid = await report.report(query({ ...selected, groupBy: 'AID' }), own());
+    expect(aid.rows![0]).toMatchObject({
+      linkCount: 1, adCount: 1, adVisits: 1, productViews: 1,
+      submittedOrders: 1, validOrderValuePhp: '1000.00',
+    });
   });
 });

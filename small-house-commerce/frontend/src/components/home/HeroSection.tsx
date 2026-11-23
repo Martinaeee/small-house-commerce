@@ -2,8 +2,11 @@ import { ButtonLink } from "@/components/ui/Button";
 import { poppins } from "@/lib/fonts";
 import type { HomepageSection } from "@/lib/api";
 import { trackAttrs } from "@/lib/home-tracking";
-import { optimizedUploadImage } from "@/lib/image-url";
+import { optimizedUploadImage, optimizedUploadImageSrcSet } from "@/lib/image-url";
 import { videoPlaybackUrl } from "@/lib/video-url";
+
+const MOBILE_WIDTHS = [384, 640, 750, 1080] as const;
+const DESKTOP_WIDTHS = [750, 1080, 1440] as const;
 
 const str = (v: unknown): string => (typeof v === "string" ? v : "");
 
@@ -70,8 +73,11 @@ export function HeroSection({ section }: { section: HomepageSection }) {
                 <>
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
-                    src={optimizedUploadImage(mobile || poster || desktop, 1440)}
+                    src={optimizedUploadImage(mobile || poster || desktop, 750)}
+                    srcSet={optimizedUploadImageSrcSet(mobile || poster || desktop, MOBILE_WIDTHS)}
+                    sizes="100vw"
                     alt=""
+                    loading="lazy"
                     className="absolute inset-0 h-full w-full object-cover"
                   />
                   <div className="absolute inset-0 bg-gradient-to-b from-ink/40 to-ink/50" />
@@ -83,14 +89,24 @@ export function HeroSection({ section }: { section: HomepageSection }) {
           <>
             <div className="relative hidden aspect-[16/7] w-full md:block">
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={optimizedUploadImage(desktop, 1440)} alt="" className="absolute inset-0 h-full w-full object-cover" />
+              <img
+                src={optimizedUploadImage(desktop, 1440)}
+                srcSet={optimizedUploadImageSrcSet(desktop, DESKTOP_WIDTHS)}
+                sizes="100vw"
+                alt=""
+                loading="lazy"
+                className="absolute inset-0 h-full w-full object-cover"
+              />
               <div className="absolute inset-0 bg-gradient-to-r from-ink/55 via-ink/20 to-transparent" />
             </div>
             <div className="relative aspect-[4/5] w-full md:hidden">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src={optimizedUploadImage(mobile || desktop, 1440)}
+                src={optimizedUploadImage(mobile || desktop, 750)}
+                srcSet={optimizedUploadImageSrcSet(mobile || desktop, MOBILE_WIDTHS)}
+                sizes="100vw"
                 alt=""
+                loading="lazy"
                 className="absolute inset-0 h-full w-full object-cover"
               />
               <div className="absolute inset-0 bg-gradient-to-b from-ink/40 to-ink/50" />

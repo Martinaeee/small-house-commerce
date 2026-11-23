@@ -11,6 +11,7 @@
 .price { padding: 2px 0 12px; }
 .priceRow { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
 .sold { flex-shrink: 0; color: var(--color-ink-muted); font-size: 11px; font-weight: 400; white-space: nowrap; }
+.sold[data-sale="true"] { color: var(--color-sale); }
 .sectionNav { position: fixed; left: 0; right: 0; top: 84px; z-index: 20; margin: 0; padding: 0 12px; background: var(--color-background); border-bottom: 1px solid var(--color-border); transition: transform .18s ease, opacity .15s ease; }
 .sectionNav > div { gap: 16px; padding: 0; }
 .sectionNav a { min-height: 32px; font-size: 11.5px; }

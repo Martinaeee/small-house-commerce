@@ -4,11 +4,12 @@ import { useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import type { Product } from "@/lib/api";
 import { useCart } from "@/components/cart/CartContext";
-import { useCartRecommendations, directAddSku, quickAddEligible, discountPct } from "@/lib/useCartRecommendations";
+import { useCartRecommendations, defaultAddSku, quickAddEligible, discountPct } from "@/lib/useCartRecommendations";
 import { addToCartEvent, emitCommerceEvent } from "@/lib/commerce-events";
 import { formatPrice } from "@/components/ui/PriceBox";
 import { PlaceholderImage } from "@/components/ui/PlaceholderImage";
 import { optimizedUploadImage } from "@/lib/image-url";
+import { productCoverMedia } from "@/lib/product-cover";
 import { useDesktopViewport } from "./useDesktopViewport";
 import styles from "./PdpMobile.module.css";
 
@@ -58,7 +59,7 @@ export function PdpQuickRecommendations({ currentProduct, fallback }: {
 
   async function quickAdd(product: Product) {
     if (busySlug !== null) return;
-    const sku = directAddSku(product);
+    const sku = defaultAddSku(product);
     if (!sku) {
       // Several sellable combinations have no honest one-click SKU; the shared
       // picker asks the shopper instead of adding an arbitrary variant.
@@ -98,19 +99,20 @@ export function PdpQuickRecommendations({ currentProduct, fallback }: {
       </div>
       <ul className={styles.quickRailTrack}>
         {list.map(product => {
-          const direct = directAddSku(product);
+          const direct = defaultAddSku(product);
           const price = direct?.price ?? lowestPrice(product);
           const off = direct ? discountPct(direct) : 0;
           const busy = busySlug === product.slug;
           const added = addedSlug === product.slug;
+          const cover = productCoverMedia(product);
           return (
             <li key={product.id} className={styles.quickCard}>
               <Link href={`/products/${product.slug}`} className={styles.quickMedia} aria-label={`View ${product.name}`}>
-                {product.effectiveCoverMedia ? (
+                {cover ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
-                    src={optimizedUploadImage(product.effectiveCoverMedia.url, 256)}
-                    alt={product.effectiveCoverMedia.altText ?? product.name}
+                    src={optimizedUploadImage(cover.url, 256)}
+                    alt={cover.altText ?? product.name}
                     loading="lazy"
                   />
                 ) : <PlaceholderImage label={product.name} />}

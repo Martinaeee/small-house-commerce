@@ -157,6 +157,28 @@ describe('MetaCapiService.enqueuePurchase', () => {
     });
   });
 
+  // A retried checkout, a refreshed success page or a second tab must never
+  // add a second Purchase row: both attempts share one event id and the
+  // outbox unique index collapses them.
+  it('queues at most one Purchase row for an order', async () => {
+    const stored = new Map<string, number>();
+    const create = vi.fn(async (args: { data: { eventId: string } }) => {
+      const seen = (stored.get(args.data.eventId) ?? 0) + 1;
+      stored.set(args.data.eventId, seen);
+      if (seen > 1) throw Object.assign(new Error('duplicate'), { code: 'P2002' });
+      return { id: 'row-1' };
+    });
+    const prisma = makePrisma({ create });
+    const service = new MetaCapiService(prisma as never, makeClient() as never);
+
+    await expect(service.enqueuePurchase(purchase)).resolves.toBe(true);
+    await expect(service.enqueuePurchase(purchase)).resolves.toBe(false);
+    expect(create).toHaveBeenCalledTimes(2);
+    expect(create.mock.calls[0][0].data.eventId).toBe('purchase-PH100011');
+    expect(create.mock.calls[1][0].data.eventId).toBe('purchase-PH100011');
+    expect(stored.size).toBe(1);
+  });
+
   it('matches the browser Purchase custom_data contract exactly', async () => {
     const prisma = makePrisma();
     const service = new MetaCapiService(prisma as never, makeClient() as never);

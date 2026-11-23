@@ -1,0 +1,12 @@
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+# Re-warm the Next image optimizer cache after a frontend container rebuild
+# resets .next/cache/images. The wrapper no-ops while the cache is warm.
+*/15 * * * * root /usr/local/sbin/luwag-warm-cache-if-cold.sh
+# Daily low-traffic refresh: the cache persists across deploys now, so the
+# cold check above almost never fires. A full run keeps products and images
+# published since the last run warm before the next peak (largely HITs, ~1min).
+0 4 * * * root { echo "=== $(date -Is) daily refresh ==="; /usr/local/sbin/luwag-warm-image-cache.sh; echo "=== $(date -Is) daily finished exit=$? ==="; } >> /var/log/luwag-warm-cache.log 2>&1
+# Refresh the access report the admin "access diagnostics" page reads. The
+# script writes atomically and the backend mounts /var/lib/luwag read-only.
+*/5 * * * * root /usr/local/sbin/luwag-access-report.sh --json --out /var/lib/luwag/access.json >/dev/null 2>&1

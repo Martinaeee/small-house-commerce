@@ -22,4 +22,11 @@ export class SystemStatusController {
   get() {
     return this.status.getStatus();
   }
+
+  /** 5xx rate, image-cache hit ratio and slowest paths from the Caddy log. */
+  @Get('access')
+  @Header('Cache-Control', 'private, no-store')
+  getAccess() {
+    return this.status.getAccessReport();
+  }
 }

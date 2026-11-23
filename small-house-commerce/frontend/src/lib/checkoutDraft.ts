@@ -1,3 +1,5 @@
+import type { PaymentMethodId } from "./api";
+
 export interface CheckoutDraftCustomer {
   name: string; phone: string; province: string; city: string;
   barangay: string; postalCode: string; streetAddress: string; landmark: string;
@@ -17,9 +19,34 @@ export interface CheckoutDraft {
   promoCode?: string | null;
   /** Free-text delivery note from the shopper (order-level, max 200). */
   customerNote?: string | null;
+  /**
+   * The payment the shopper chose. Absent in a draft written before the
+   * choice existed, so it reads as COD — the default that keeps every old
+   * draft orderable.
+   */
+  paymentMethod?: PaymentMethodId;
   selection?: CheckoutDraftSelection;
 }
 const DRAFT_KEY = "luwag_checkout_draft";
+
+/**
+ * F05: private mode, a full quota or an embedded webview can deny
+ * sessionStorage. The form page and the confirmation step are separate
+ * client navigations in the same JS context, so a tab-local copy keeps the
+ * shopper's fields alive across that step. It never leaves the tab and is
+ * cleared by the same calls that clear the stored draft.
+ */
+let memoryDraft: CheckoutDraft | null = null;
+
+/** True when the browser refuses sessionStorage (write and read both fail). */
+export function checkoutDraftStorageBlocked(): boolean {
+  try {
+    sessionStorage.getItem(DRAFT_KEY);
+    return false;
+  } catch {
+    return true;
+  }
+}
 
 function isCheckoutDraftSelection(
   value: unknown,
@@ -58,24 +85,38 @@ function isCheckoutDraftSelection(
 export function readCheckoutDraft(): CheckoutDraft | null {
   try {
     const raw = sessionStorage.getItem(DRAFT_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as CheckoutDraft;
-    if (!parsed || typeof parsed.customer !== "object" || parsed.customer === null || Array.isArray(parsed.customer)) return null;
-    if (
-      parsed.selection !== undefined &&
-      !isCheckoutDraftSelection(parsed.selection)
-    ) {
-      return null;
-    }
-    return {
-      ...parsed,
-      customerNote: normalizeNote(parsed.customerNote),
-      promoCode:
-        typeof parsed.promoCode === "string" && parsed.promoCode.trim() !== ""
-          ? parsed.promoCode.trim().toUpperCase().slice(0, 32)
-          : null,
-    };
-  } catch { return null; }
+    if (!raw) return memoryDraft;
+    return normalizeDraft(JSON.parse(raw));
+  } catch {
+    return memoryDraft;
+  }
+}
+
+function normalizeDraft(parsed: CheckoutDraft): CheckoutDraft | null {
+  if (!parsed || typeof parsed.customer !== "object" || parsed.customer === null || Array.isArray(parsed.customer)) return null;
+  if (
+    parsed.selection !== undefined &&
+    !isCheckoutDraftSelection(parsed.selection)
+  ) {
+    return null;
+  }
+  return {
+    ...parsed,
+    customerNote: normalizeNote(parsed.customerNote),
+    promoCode:
+      typeof parsed.promoCode === "string" && parsed.promoCode.trim() !== ""
+        ? parsed.promoCode.trim().toUpperCase().slice(0, 32)
+        : null,
+    // A draft written before the payment choice existed reads as COD.
+    paymentMethod: normalizePaymentMethod(parsed.paymentMethod),
+  };
+}
+
+/** Only the four known methods; anything else reads as COD. */
+function normalizePaymentMethod(value: unknown): PaymentMethodId {
+  return value === "CARD" || value === "GCASH" || value === "BPI"
+    ? value
+    : "COD";
 }
 /** Mirrors the order API: trimmed, at most 200 characters, blank = none. */
 function normalizeNote(value: unknown): string | null {
@@ -90,24 +131,28 @@ export function writeCheckoutDraft(
   selection?: CheckoutDraftSelection,
   promoCode: string | null = null,
   customerNote: string | null = null,
+  paymentMethod: PaymentMethodId = "COD",
 ): void {
+  const draft: CheckoutDraft = {
+    customer,
+    preferredDeliveryDate,
+    selection,
+    promoCode:
+      typeof promoCode === "string" && promoCode.trim() !== ""
+        ? promoCode.trim().toUpperCase().slice(0, 32)
+        : null,
+    customerNote: normalizeNote(customerNote),
+    paymentMethod: normalizePaymentMethod(paymentMethod),
+    savedAt: new Date().toISOString(),
+  };
+  memoryDraft = draft;
   try {
-    sessionStorage.setItem(
-      DRAFT_KEY,
-      JSON.stringify({
-        customer,
-        preferredDeliveryDate,
-        selection,
-        promoCode:
-          typeof promoCode === "string" && promoCode.trim() !== ""
-            ? promoCode.trim().toUpperCase().slice(0, 32)
-            : null,
-        customerNote: normalizeNote(customerNote),
-        savedAt: new Date().toISOString(),
-      }),
-    );
-  } catch { /* memory fallback: flow degrades per spec §5.3 */ }
+    sessionStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+  } catch {
+    // Storage denied: the in-memory copy carries the fields to the next step.
+  }
 }
 export function clearCheckoutDraft(): void {
+  memoryDraft = null;
   try { sessionStorage.removeItem(DRAFT_KEY); } catch { /* ignore */ }
 }

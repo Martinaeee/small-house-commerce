@@ -4,6 +4,7 @@ export interface DetailBlockLike {
   altText?: string | null;
   optionValueId?: string | null;
   variantId?: string | null;
+  groupKey?: string | null;
 }
 
 export interface DetailScopeOption {
@@ -61,4 +62,39 @@ export function partitionDetailBlocks<T extends DetailBlockLike>(
     featured: valid[0] ?? null,
     remaining: valid.slice(1),
   };
+}
+
+export type DetailModule<T extends DetailBlockLike> =
+  | { kind: "single"; block: T }
+  | { kind: "carousel"; groupKey: string; blocks: T[] };
+
+/**
+ * Consecutive rows sharing a non-null group key form one swipeable module;
+ * a lone keyed row stays a plain single block. Row order is preserved.
+ */
+export function groupDetailModules<T extends DetailBlockLike>(
+  blocks: readonly T[],
+): Array<DetailModule<T>> {
+  const modules: Array<DetailModule<T>> = [];
+  for (const block of blocks) {
+    const key = block.groupKey?.trim() || null;
+    const last = modules.at(-1);
+    if (key && last?.kind === "carousel" && last.groupKey === key) {
+      last.blocks.push(block);
+      continue;
+    }
+    modules.push(
+      key
+        ? { kind: "carousel", groupKey: key, blocks: [block] }
+        : { kind: "single", block },
+    );
+  }
+  // A carousel of one is not a carousel: a leftover lone key (e.g. rows that
+  // were ungrouped or split by a reorder) renders as a plain image instead of
+  // disabled arrows and a single dot.
+  return modules.map((module) =>
+    module.kind === "carousel" && module.blocks.length === 1
+      ? { kind: "single" as const, block: module.blocks[0]! }
+      : module,
+  );
 }

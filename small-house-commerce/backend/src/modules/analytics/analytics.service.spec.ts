@@ -59,6 +59,40 @@ describe('AnalyticsService.ingest', () => {
     expect(row.sectionType).toBe('HERO');
   });
 
+  // A success page can be refreshed, opened in another tab or replayed; the
+  // order's PURCHASE row must stay unique even before a database index lands.
+  it('skips a PURCHASE whose order already has a first-party row', async () => {
+    const { prisma, service } = makeService();
+    const findMany = vi.fn(async () => [{ entityId: 'PH100030' }]);
+    (prisma.analyticsEvent as unknown as { findMany: typeof findMany }).findMany = findMany;
+
+    const result = await service.ingest(
+      [event({ eventName: 'PURCHASE', entityId: 'PH100030' })],
+      'client',
+    );
+
+    expect(findMany).toHaveBeenCalledWith({
+      where: { eventName: 'PURCHASE', entityId: { in: ['PH100030'] } },
+      select: { entityId: true },
+    });
+    expect(result.accepted).toBe(0);
+    expect(prisma.analyticsEvent.createMany).not.toHaveBeenCalled();
+  });
+
+  it('still stores a PURCHASE for a new order and non-purchase events in the same batch', async () => {
+    const { prisma, service } = makeService();
+    (prisma.analyticsEvent as unknown as { findMany: ReturnType<typeof vi.fn> }).findMany =
+      vi.fn(async () => []);
+
+    await service.ingest(
+      [event({ eventName: 'PURCHASE', entityId: 'PH100031' }), event({ eventName: 'PAGE_VIEW' })],
+      'client',
+    );
+
+    expect(prisma.analyticsEvent.createMany).toHaveBeenCalledTimes(1);
+    expect(prisma.analyticsEvent.createMany.mock.calls[0][0].data).toHaveLength(2);
+  });
+
   it('refuses a batch once the per-address budget is spent', async () => {
     const { service } = makeService();
     const batch = Array.from({ length: 20 }, () => event());
@@ -133,5 +167,39 @@ describe('campaign link attribution from the touch credential', () => {
     await service.ingest([event()], 'client');
     const data = prisma.analyticsEvent.createMany.mock.calls[0][0].data;
     expect(data[0].campaignLinkId ?? null).toBeNull();
+  });
+
+  it('copies verified attribution and ignores a forged campaign id', async () => {
+    const resolve = vi.fn(async () => ({
+      linkId: '55555555-5555-4555-a555-555555555555',
+      ownerUserId: '11111111-1111-4111-a111-111111111111',
+      aid: 'OP-1',
+      adId: '120200000000002',
+      adIdSource: 'META_DYNAMIC',
+      adIdMissingReason: null,
+      campaignId: 'campaign-A',
+      adsetId: 'set-A',
+      paid: true,
+      linkResolution: 'CL',
+      attributionConflict: true,
+      conflictDetail: 'AID OP-2 != link AID OP-1',
+    }));
+    const { prisma, service } = makeService({ resolve });
+    await service.ingest([event({ campaignId: 'forged', marketingCredential: 'cred' })], 'client');
+    const row = prisma.analyticsEvent.createMany.mock.calls[0][0].data[0];
+    expect(row).toMatchObject({
+      campaignLinkId: '55555555-5555-4555-a555-555555555555',
+      optimizerId: '11111111-1111-4111-a111-111111111111',
+      aidSnapshot: 'OP-1',
+      adId: '120200000000002',
+      adIdSource: 'META_DYNAMIC',
+      adIdMissingReason: null,
+      campaignId: 'campaign-A',
+      adsetId: 'set-A',
+      attributionPaid: true,
+      linkResolution: 'CL',
+      attributionConflict: true,
+      conflictDetail: 'AID OP-2 != link AID OP-1',
+    });
   });
 });

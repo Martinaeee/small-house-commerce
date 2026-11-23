@@ -10,7 +10,7 @@ const calendarDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine((value) => {
 export const marketingReportQuerySchema = z.object({
   from: z.iso.date().default(() => new Date(manilaVisitDay(new Date()).getTime() - 6 * 864e5).toISOString().slice(0, 10)),
   to: z.iso.date().default(today),
-  groupBy: z.enum(['LINK', 'PAGE', 'PRODUCT', 'OWNER']).default('LINK'),
+  groupBy: z.enum(['LINK', 'PAGE', 'PRODUCT', 'OWNER', 'ADID', 'AID']).default('LINK'),
   // FLAT keeps the classic paged table; TREE returns the product → source →
   // link hierarchy the grouped workbench view renders without pagination.
   mode: z.enum(['FLAT', 'TREE']).default('FLAT'),

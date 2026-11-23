@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, type ReactNode } from "react";
+import { usePathname } from "next/navigation";
 import styles from "./StorefrontHeaderChrome.module.css";
 
 export function StorefrontHeaderChrome({ children }: { children: ReactNode }) {
@@ -19,5 +20,17 @@ export function StorefrontHeaderChrome({ children }: { children: ReactNode }) {
     window.addEventListener("resize", measure);
     return () => { observer?.disconnect(); window.removeEventListener("resize", measure); };
   }, []);
-  return <div ref={ref} className={`${styles.chrome} sticky top-0 z-40`}>{children}</div>;
+  // The checkout gets a darker, quieter header (Lowe's-style chrome); the
+  // announcement strip hides itself on the same routes.
+  const pathname = usePathname();
+  const onCheckout = pathname?.startsWith("/checkout") ?? false;
+  return (
+    <div
+      ref={ref}
+      data-checkout-header={onCheckout ? "true" : undefined}
+      className={`${styles.chrome} sticky top-0 z-40`}
+    >
+      {children}
+    </div>
+  );
 }

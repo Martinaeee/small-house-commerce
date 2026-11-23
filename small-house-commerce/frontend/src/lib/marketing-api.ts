@@ -65,6 +65,7 @@ export interface MarketingPageQuery {
 }
 
 export type MarketingSourceType = "FB_POST" | "META_AD" | "ORGANIC" | "DIRECT" | "EMAIL" | "OTHER";
+export type CampaignLinkAttributionMode = "CL" | "AID";
 export interface ShortLinkResult {
   code: string;
   /** Root-relative entrance, e.g. "/s/abc12345". */
@@ -79,6 +80,7 @@ export interface CampaignLinkInput {
   landingPageId?: string | null;
   name?: string;
   sourceType: MarketingSourceType;
+  attributionMode?: CampaignLinkAttributionMode;
   postDate?: string | null;
   postUrl?: string | null;
   campaignId?: string | null;
@@ -92,6 +94,13 @@ export interface CampaignLinkInput {
 }
 export interface CampaignLinkRow extends CampaignLinkInput {
   name: string;
+  attributionMode: CampaignLinkAttributionMode;
+  /** META_AD only: clean landing URL with no tracking params. */
+  cleanPath?: string | null;
+  /** The link's CL code, exposed separately from the URL. */
+  cl?: string;
+  /** META_AD only: `cl=...&aid=...&adid={{ad.id}}`; null for FB_POST. */
+  metaUrlParameters: string | null;
   postDate: string | null;
   postUrl: string | null;
   archivedAt: string | null;
@@ -157,10 +166,10 @@ export interface MarketingLinkContext {
   }[];
 }
 
-export type MarketingReportLevel = "LINK" | "PAGE" | "PRODUCT" | "OWNER";
+export type MarketingReportLevel = "LINK" | "PAGE" | "PRODUCT" | "OWNER" | "ADID" | "AID";
 export type MarketingReportMode = "FLAT" | "TREE";
 export type MarketingReportSort =
-  | "NAME" | "PRODUCT" | "OWNER" | "VISITS" | "ADD_TO_CARTS" | "CHECKOUTS"
+  | "NAME" | "PRODUCT" | "OWNER" | "LATEST_LINK" | "VISITS" | "ADD_TO_CARTS" | "CHECKOUTS"
   | "SUBMITTED" | "VALID" | "CONFIRMED" | "SIGNED" | "VALID_VALUE" | "SIGNED_GROSS"
   | "SPEND_USD" | "SPEND_PHP" | "ORDER_CPA" | "SIGNED_CPA" | "ORDER_ROAS" | "SIGNED_ROAS" | "CONVERSION";
 export interface MarketingReportQuery {
@@ -184,6 +193,8 @@ export interface MarketingReportRow {
   postDate: string | null;
   postUrl: string | null;
   archivedAt: string | null;
+  /** Newest link created under this row (ISO); null for unregistered sources. */
+  createdAt: string | null;
   kind: "REGISTERED" | "DIRECT" | "LEGACY" | "UNVERIFIED";
   id: string;
   label: string;
@@ -221,6 +232,15 @@ export interface MarketingReportRow {
   costCoverageComplete: boolean;
   periodBasis: "TOUCH" | "ORDER_CREATED";
   productThumbnailUrl: string | null;
+  /** ADID/AID attribution views only. */
+  adId?: string | null;
+  adIdSource?: string | null;
+  adIdMissingReason?: string | null;
+  adVisits?: number;
+  productViews?: number;
+  linkCount?: number | null;
+  adCount?: number | null;
+  linkName?: string | null;
 }
 /** One product → its source-type breakdown → the links inside each source. */
 export interface MarketingReportTreeProduct {

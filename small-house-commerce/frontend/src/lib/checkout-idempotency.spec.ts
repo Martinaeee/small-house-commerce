@@ -2,6 +2,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   checkoutIdempotencyAttempt,
   clearCheckoutIdempotencyKey,
+  clearCompletedCheckout,
+  COMPLETED_CHECKOUT_TTL_MS,
+  findCompletedCheckout,
+  recordCompletedCheckout,
 } from "./checkout-idempotency";
 
 const SAFE = /^[A-Za-z0-9_-]{16,120}$/;
@@ -132,6 +136,54 @@ describe("checkout idempotency attempt", () => {
       expect(attempt.key).toMatch(SAFE);
     } finally {
       random.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
+describe("completed checkout marker", () => {
+  const SCOPE = "/checkout/confirm?items=item-1,item-2";
+
+  it("re-opens the order placed for this exact checkout within the TTL", () => {
+    recordCompletedCheckout(SCOPE, "PH2001");
+    expect(findCompletedCheckout(SCOPE)).toMatchObject({ orderNumber: "PH2001" });
+  });
+
+  it("does not redirect a different checkout, an expired marker or corrupted storage", () => {
+    recordCompletedCheckout(SCOPE, "PH2001");
+    expect(findCompletedCheckout("/checkout/confirm?items=item-3")).toBeNull();
+
+    recordCompletedCheckout(SCOPE, "PH2001", 0);
+    expect(findCompletedCheckout(SCOPE, COMPLETED_CHECKOUT_TTL_MS + 1)).toBeNull();
+
+    window.sessionStorage.setItem("luwag_checkout_completed:" + SCOPE, "not json");
+    expect(findCompletedCheckout(SCOPE)).toBeNull();
+  });
+
+  it("lets a new purchase proceed once the cart was cleaned", () => {
+    recordCompletedCheckout(SCOPE, "PH2001");
+    clearCompletedCheckout(SCOPE);
+    expect(findCompletedCheckout(SCOPE)).toBeNull();
+  });
+
+  it("fails closed when storage is denied", () => {
+    const denied = {
+      getItem: () => {
+        throw new Error("denied");
+      },
+      setItem: () => {
+        throw new Error("denied");
+      },
+      removeItem: () => {
+        throw new Error("denied");
+      },
+    } as unknown as Storage;
+    vi.stubGlobal("sessionStorage", denied);
+    try {
+      expect(() => recordCompletedCheckout(SCOPE, "PH2001")).not.toThrow();
+      expect(findCompletedCheckout(SCOPE)).toBeNull();
+      expect(() => clearCompletedCheckout(SCOPE)).not.toThrow();
+    } finally {
       vi.unstubAllGlobals();
     }
   });

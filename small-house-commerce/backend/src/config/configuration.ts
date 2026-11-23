@@ -45,6 +45,17 @@ export function configuration() {
       accessTtl: env.JWT_ACCESS_TTL,
       refreshTtl: env.JWT_REFRESH_TTL,
     },
+    // Success-page receipt capability. Denied order numbers are operator QA
+    // orders: they never receive a receipt and can never render a success page.
+    orders: {
+      receiptDenyNumbers: (env.ORDER_RECEIPT_DENY_NUMBERS ?? '')
+        .split(',')
+        .map((value) => value.trim())
+        .filter(Boolean),
+    },
+    marketing: {
+      touchTtlDays: env.MARKETING_TOUCH_TTL_DAYS,
+    },
     homepagePreviewSecret: env.HOMEPAGE_PREVIEW_SECRET ?? '',
     r2: {
       accountId: env.R2_ACCOUNT_ID ?? null,
@@ -89,6 +100,24 @@ export function configuration() {
       warehouse: env.QIANYI_WAREHOUSE ?? '',
       localWarehouseId: env.QIANYI_LOCAL_WAREHOUSE_ID ?? null,
       logistics: env.QIANYI_LOGISTICS ?? '',
+      // Whether Qianyi's prepaid enum for online orders is confirmed. Until
+      // it is, an online order is never pushed to Qianyi.
+      prepaidVerified: env.QIANYI_PREPAID_VERIFIED ?? 'false',
+    },
+    // SUNRATE acquiring integration (design 2026-11-20). The gateway host is
+    // bound to the environment in sunrate.config.ts, never taken from env
+    // beyond a consistency check.
+    sunrate: {
+      enabled: env.SUNRATE_ENABLED ?? 'false',
+      env: env.SUNRATE_ENV ?? '',
+      baseUrl: env.SUNRATE_BASE_URL ?? '',
+      merchantId: env.SUNRATE_MERCHANT_ID ?? '',
+      signKey: env.SUNRATE_SIGN_KEY ?? '',
+    },
+    // Public origin used to build gateway frontURL / backURL. Never derived
+    // from request headers (host-header injection would forge payment URLs).
+    payments: {
+      publicBaseUrl: env.PAYMENTS_PUBLIC_BASE_URL ?? '',
     },
   };
 }

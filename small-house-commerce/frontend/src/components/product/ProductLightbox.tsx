@@ -6,7 +6,7 @@ import type { ProductImage } from "@/lib/api";
 import { suspendViewportPlayback } from "@/lib/viewport-video-coordinator";
 import { PlaceholderImage } from "@/components/ui/PlaceholderImage";
 import { ViewportVideo } from "./ViewportVideo";
-import { optimizedUploadImage } from "@/lib/image-url";
+import { optimizedUploadImage, optimizedUploadImageSrcSet, COLUMN_IMAGE_WIDTHS } from "@/lib/image-url";
 
 interface Props {
   images: ProductImage[];
@@ -217,6 +217,8 @@ export function ProductLightbox({ images, productName, index, onClose, onNavigat
                 <img
                   key={current.id}
                   src={optimizedUploadImage(current.url, 1280)}
+                  srcSet={optimizedUploadImageSrcSet(current.url, COLUMN_IMAGE_WIDTHS)}
+                  sizes="100vw"
                   alt={current.altText ?? "Product image"}
                   className={`max-h-full max-w-full rounded-md object-contain transition-opacity duration-150 ${
                     animating ? "opacity-0" : "opacity-100"
@@ -290,6 +292,8 @@ export function ProductLightbox({ images, productName, index, onClose, onNavigat
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
                       src={optimizedUploadImage(image.url, 1280)}
+                      srcSet={optimizedUploadImageSrcSet(image.url, COLUMN_IMAGE_WIDTHS)}
+                      sizes="100vw"
                       alt={image.altText ?? `Product image ${i + 1}`}
                       className="block h-auto w-full"
                     />

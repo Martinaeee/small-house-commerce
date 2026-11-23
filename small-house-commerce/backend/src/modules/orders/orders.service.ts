@@ -2,11 +2,13 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
   Optional,
 } from '@nestjs/common';
-import { Prisma, type OrderStatus } from '../../generated/prisma/client.js';
-import { normalizePhilippinePhone } from '../../common/phone.util.js';
+import { createHash } from 'node:crypto';
+import { Prisma, type ConfirmationStatus, type OrderStatus } from '../../generated/prisma/client.js';
+import { normalizePhilippinePhone, phoneSearchFragments } from '../../common/phone.util.js';
 import { manilaDayEndExclusive, manilaDayStart } from '../../common/manila-day.js';
 import {
   CACHE_TAGS,
@@ -23,9 +25,15 @@ import {
 } from '../inventory/bundle-inventory.js';
 import { InventoryService } from '../inventory/inventory.service.js';
 import { MarketingTouchService } from '../marketing/marketing-touch.service.js';
+import type { AdIdMissingReason, AdidSource } from '../marketing/marketing-attribution.js';
 import { MetaCapiService } from '../meta-capi/meta-capi.service.js';
 import { QianyiSyncService } from '../qianyi/qianyi-sync.service.js';
+import { PaymentMethodsService } from '../payments/payment-methods.service.js';
+import { newMerchantOrderNum } from '../payments/sunrate.merchant-order-num.js';
+import type { SunrateConfig } from '../payments/sunrate.config.js';
 import type { CheckoutRequestMeta } from '../meta-capi/request-meta.js';
+import { CHECKOUT_DRAFT_MAX_AGE_MS, tryHashCheckoutDraftToken } from '../checkout-drafts/checkout-draft-token.js';
+import type { CheckoutDraftSnapshot } from '../checkout-drafts/checkout-draft-snapshot.js';
 import { BackInStockService } from '../newsletter/back-in-stock.service.js';
 import { PromotionService } from '../newsletter/promotion.service.js';
 import { computeDiscount } from '../newsletter/promotion-pricing.js';
@@ -38,7 +46,8 @@ import {
   type OrderBundleSnapshotV1,
   type OrderItemSnapshotWrite,
 } from './order-item-snapshot.js';
-import type { CheckoutInput, EditOrderInput, MergeOrdersInput, OrderQuery, ShipOrderInput } from './dto/order.dto.js';
+import type { BulkOrdersInput } from './dto/order-workbench.dto.js';
+import { checkoutSchema, type CheckoutInput, type EditOrderInput, type MergeOrdersInput, type OrderQuery, type ShipOrderInput } from './dto/order.dto.js';
 import { persistConvertedDraft } from '../checkout-drafts/converted-draft.js';
 import { idempotencyFingerprint } from './order-idempotency.js';
 import { signShipmentWithin } from './sign-shipment.js';
@@ -102,6 +111,9 @@ const ORDER_DETAIL_INCLUDE = {
   shippingAddress: true,
   attribution: true,
   payments: true,
+  // The gateway attempts with their masked snapshots (brand, last four):
+  // the card number itself never reaches this system.
+  sunrateAttempts: { orderBy: { createdAt: 'desc' as const } },
   statusHistory: { orderBy: { createdAt: 'asc' as const } },
   reservations: true,
   notes: { orderBy: { createdAt: 'desc' as const } },
@@ -285,8 +297,41 @@ function guestThumbnail(item: {
   return shared?.url ?? null;
 }
 
+/**
+ * Payment attempt states that still own the order: the money may be moving,
+ * or has moved. A failed attempt owns nothing.
+ */
+const ONLINE_ATTEMPT_BLOCKING = ['CREATING', 'PENDING', 'UNKNOWN', 'REVIEW', 'SUCCEEDED'] as const;
+
+/**
+ * Redacted per-request checkout timings. The caller keeps the object, fills it
+ * during the call and logs the numbers; no customer data ever enters it.
+ */
+export type CheckoutTrace = {
+  /** Milliseconds per stage: precheck | transaction | postCommit | metaEnqueue | total. */
+  phaseMs: Record<string, number>;
+  /** The request matched an existing order and created nothing. */
+  replayed: boolean;
+};
+
+/**
+ * What a checkout hands back. An online checkout also carries the payment
+ * attempt it created — the handle the gateway session is started from —
+ * while a COD checkout has nothing to pay and never grows that key.
+ */
+export interface CheckoutResult {  orderNumber: string;
+  orderStatus: OrderStatus;
+  confirmationStatus: ConfirmationStatus;
+  riskType: string | null;
+  requiresReview: boolean;
+  grandTotal: number;
+  payment?: { attemptId: string; channel: string; env: string };
+}
+
 @Injectable()
 export class OrdersService {
+  private readonly logger = new Logger(OrdersService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly inventory: InventoryService,
@@ -299,7 +344,80 @@ export class OrdersService {
     // Optional for the same reason: every spec that builds OrdersService by
     // hand keeps working without a Qianyi stub.
     @Optional() private readonly qianyi?: QianyiSyncService,
+    // The per-method payment switches. Optional so hand-built services keep
+    // working; without it only COD can be served.
+    @Optional() private readonly paymentMethods?: PaymentMethodsService,
   ) {}
+
+  /**
+   * Best-effort post-commit step. The order already exists, so a failure here
+   * must never surface as a checkout error; three attempts cover a transient
+   * store outage, then the failure is logged with the order number only (no
+   * customer data) so the operator can reconcile against the order itself.
+   */
+  private async afterCommit(
+    orderNumber: string,
+    step: string,
+    run: () => Promise<unknown>,
+  ): Promise<void> {
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      try {
+        await run();
+        return;
+      } catch (error) {
+        if (attempt === 3) {
+          this.logger.error(
+            `post-commit step "${step}" failed for ${orderNumber}: ${(error as Error).message}`,
+          );
+          return;
+        }
+        await new Promise((resolve) => setTimeout(resolve, attempt === 1 ? 50 : 150));
+      }
+    }
+  }
+
+  /**
+   * Decides which payment path a checkout takes. The switches live in the
+   * database, so the decision is read inside the checkout transaction: a
+   * method switched off between the pre-check and the write must not leave
+   * an order, a reservation or a redeemed promo behind.
+   */
+  private async resolvePaymentPlan(
+    paymentMethod: 'COD' | 'CARD' | 'GCASH' | 'BPI',
+  ): Promise<{ channel: string | null; gateway: SunrateConfig | null }> {
+    // Without the payment module (hand-built service) only COD can be
+    // served; an online choice is refused, never silently downgraded.
+    if (!this.paymentMethods) {
+      if (paymentMethod !== 'COD') throw new ConflictException('PAYMENT_METHOD_DISABLED');
+      return { channel: null, gateway: null };
+    }
+    const effective = await this.paymentMethods.listEffectiveMethods();
+    if (paymentMethod === 'COD') {
+      if (!effective.codEnabled) throw new ConflictException('PAYMENT_METHOD_DISABLED');
+      return { channel: null, gateway: null };
+    }
+    const method = effective.methods.find((entry) => entry.id === paymentMethod);
+    if (!method?.enabled) throw new ConflictException('PAYMENT_METHOD_DISABLED');
+    const gateway = this.paymentMethods.gatewayConfig();
+    if (!gateway) throw new ConflictException('PAYMENT_METHOD_DISABLED');
+    return { channel: paymentMethod.toLowerCase(), gateway };
+  }
+
+  /**
+   * An order with an open or paid online payment must not be cancelled or
+   * deleted: the money may still be moving, or has already moved. A failed
+   * payment owns nothing and is handled like any other order.
+   */
+  private async assertOnlinePaymentSettled(
+    tx: Prisma.TransactionClient,
+    orderId: string,
+  ): Promise<void> {
+    const attempt = await tx.sunratePaymentAttempt.findFirst({
+      where: { orderId, status: { in: [...ONLINE_ATTEMPT_BLOCKING] } },
+    });
+    if (!attempt) return;
+    throw new ConflictException('ONLINE_PAYMENT_ACTIVE_CONFIRM_VIA_QUERY');
+  }
 
   /**
    * COD checkout (API_SPEC §18, decided rules):
@@ -308,42 +426,71 @@ export class OrdersService {
    * - match/create the customer by normalized phone
    * - create the order with snapshots (DB-003), then reserve stock (§30)
    */
-  async checkout(
-    input: CheckoutInput,
-    requestMeta?: CheckoutRequestMeta,
-    options?: { checkoutDraftId?: string },
-  ) {
+  async checkout(input: CheckoutInput, requestMeta?: CheckoutRequestMeta, manualDraft?: {
+    id: string; tokenHash: string; revision: number; operatorId: string; riskReviewed: boolean;
+  }, trace?: CheckoutTrace): Promise<CheckoutResult> {
+    const traceStart = Date.now();
     // A retry (timeout, lost response, double click) must return the order the
     // first attempt created instead of creating another one. The pre-check
     // also covers the common replay before touching the customer table.
     const idempotencyHash = input.idempotencyKey ? idempotencyFingerprint(input) : null;
     if (input.idempotencyKey && idempotencyHash) {
       const replay = await this.findIdempotentOrder(input.idempotencyKey, idempotencyHash);
-      if (replay) return replay;
+      if (replay) {
+        if (trace) {
+          trace.replayed = true;
+          trace.phaseMs.precheck = Date.now() - traceStart;
+          trace.phaseMs.total = Date.now() - traceStart;
+        }
+        return replay;
+      }
     }
 
     const normalizedPhone = this.normalizePhone(input.customer.phone);
 
+    // The payment choice belongs to the order, so the switch that decides
+    // whether it may be used is read inside the transaction below.
+    const paymentMethod = input.paymentMethod ?? 'COD';
+    const isOnlinePayment = paymentMethod !== 'COD';
+
     // Customer classification snapshot (CUSTOMER_RISK_SPEC §7): computed for
     // the new order from prior history; stored on the order, never recomputed.
-    const classification = await this.customerRisk.classifyForNewOrder(normalizedPhone);
+    let classification = await this.customerRisk.classifyForNewOrder(normalizedPhone);
 
+    const transactionStart = Date.now();
     const runCheckoutTransaction = () =>
       this.prisma.$transaction(async (tx) => {
-    // Claim the checkout draft first: two operators converting the same draft
-    // must not produce two orders, and a failure below rolls the claim back.
-    if (options?.checkoutDraftId) {
-      const claimed = await tx.checkoutDraft.updateMany({
-        where: { id: options.checkoutDraftId, status: 'OPEN' },
-        data: { status: 'CONVERTED', followUpStatus: 'WANTS_TO_BUY', lastContactedAt: new Date() },
-      });
-      if (claimed.count === 0) {
-        throw new ConflictException({
-          statusCode: 409,
-          message: 'This checkout draft was already converted or expired.',
-        });
+    const token = tryHashCheckoutDraftToken(input.checkoutDraftToken, new Date());
+    const draftHash = manualDraft?.tokenHash ?? token?.hash;
+    let draftStartedAt = token?.issuedAt ?? null;
+    if (draftHash) {
+      // One lock for both operator and shopper conversions, even before a first
+      // autosave has created the row. The row lock also serializes autosaves.
+      // executeRaw ignores the void result, which adapter-pg cannot decode.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${draftHash}, 0))`;
+      await tx.$queryRaw`SELECT id FROM checkout_drafts WHERE token_hash = ${draftHash} FOR UPDATE`;
+      const locked = await tx.checkoutDraft.findUnique({ where: { tokenHash: draftHash } });
+      if (locked?.status === 'CONVERTED') {
+        // A same-key retry may have passed the precheck before the winner
+        // committed. Replay under the lock; other shoppers/operators conflict.
+        if (!manualDraft && input.idempotencyKey && idempotencyHash) {
+          const replay = await this.findIdempotentOrder(input.idempotencyKey, idempotencyHash, tx);
+          if (replay) return { replay } as const;
+        }
+        throw new ConflictException('DRAFT_ALREADY_CONVERTED: reload the draft to open its order');
+      }
+      draftStartedAt = locked?.createdAt ?? draftStartedAt;
+      if (manualDraft) {
+        if (!locked || locked.id !== manualDraft.id) throw new NotFoundException('Checkout draft not found');
+        if (locked.status !== 'OPEN' || locked.expiresAt <= new Date()) throw new ConflictException('This checkout draft has expired');
+        if (locked.clientRevision !== manualDraft.revision) throw new ConflictException('DRAFT_CHANGED: reload the latest draft before converting');
       }
     }
+    // Payment gate (design 2026-11-20 §4). It runs inside the transaction and
+    // after the draft replay above, so a retry of an order that already
+    // exists still gets that order back, while a method that was switched off
+    // can never leave an order, a reservation or a promo behind.
+    const paymentPlan = await this.resolvePaymentPlan(paymentMethod);
     // Resolve customer by canonical phone (§9: phone is the identity key)
     // inside the order transaction, so a failed or conflicting attempt does
     // not leave a customer record behind.
@@ -508,20 +655,115 @@ export class OrdersService {
     const orderNumber = await this.nextOrderNumber(tx);
     const warehouse = await this.inventory.defaultWarehouse(tx);
 
-        const touch = await this.marketingTouch.resolve(input.marketingCredential);
-        let adid = touch?.legacy && touch.sourceType === 'META_AD'
-          ? touch.adId?.trim() || null
-          : null;
-        if (touch?.linkId && (touch.sourceType === 'FB_POST' || touch.sourceType === 'META_AD')) {
+        const firstCredential = input.marketingFirstCredential ?? input.marketingCredential ?? null;
+        const lastCredential = input.marketingCredential ?? input.marketingFirstCredential ?? null;
+        const lastTouch = await this.marketingTouch.resolve(lastCredential);
+        const firstTouch = firstCredential === lastCredential
+          ? lastTouch
+          : await this.marketingTouch.resolve(firstCredential);
+        const lastPaidTouch = lastTouch?.paid === false ? null : lastTouch;
+        const touch = lastPaidTouch ?? firstTouch;
+        // The dynamic AID + AdID model: one AID link is reused by several
+        // Meta ads and the click carries {{ad.id}}, so a real ad ID never
+        // needs to pre-exist on a CampaignLink row. Precedence is explicit and
+        // the reason for a missing number is frozen next to the order instead
+        // of inventing one.
+        const touchAdId = touch?.adId?.trim() || null;
+        // A link-static AdID is a fallback, not a dynamic Meta ID. Old
+        // credentials have no adIdSource and keep the v2 behaviour.
+        const dynamicAdId = touchAdId && touch?.adIdSource !== 'LINK' ? touchAdId : null;
+        let adid: string | null = null;
+        let adidSource: AdidSource = 'NONE';
+        let adidMissingReason:
+          | AdIdMissingReason
+          | 'LINK_MISMATCH'
+          | 'MISSING_LINK'
+          | 'NO_TOUCH'
+          | 'TOKEN_INVALID'
+          | null = null;
+        if (!touch) {
+          adidMissingReason = input.marketingCredential || input.marketingFirstCredential
+            ? 'TOKEN_INVALID'
+            : 'NO_TOUCH';
+        } else if (touch.legacy && touch.sourceType === 'META_AD') {
+          if (dynamicAdId) {
+            adid = dynamicAdId;
+            adidSource = 'LEGACY';
+          } else {
+            adidMissingReason = 'MISSING_META_AD_ID';
+          }
+        } else if (touch.linkId && (touch.sourceType === 'FB_POST' || touch.sourceType === 'META_AD')) {
           const link = await tx.campaignLink.findUnique({
             where: { id: touch.linkId },
             select: { adid: true, ownerUserId: true, aidSnapshot: true, sourceType: true },
           });
           if (link?.ownerUserId === touch.ownerUserId &&
               link.aidSnapshot === touch.aid && link.sourceType === touch.sourceType) {
-            adid = link.adid;
+            if (link.adid && (!dynamicAdId || link.adid === dynamicAdId)) {
+              // The link's own number already is the real Meta ID (or there is
+              // no dynamic ID to prefer).
+              adid = link.adid;
+              adidSource = 'LINK';
+            } else if (dynamicAdId) {
+              // A generated link number must never override the real Meta ad ID.
+              adid = dynamicAdId;
+              adidSource = link.adid ? 'META_DYNAMIC' : 'META_DYNAMIC_FALLBACK';
+            } else if (link.adid) {
+              adid = link.adid;
+              adidSource = 'LINK';
+            } else {
+              adidMissingReason = 'MISSING_META_AD_ID';
+            }
+          } else {
+            adidMissingReason = link ? 'LINK_MISMATCH' : 'MISSING_LINK';
           }
+        } else if (dynamicAdId) {
+          adid = dynamicAdId;
+          adidSource = 'META_DYNAMIC';
+        } else {
+          // A page touch is DIRECT; an organic campaign-link touch keeps its
+          // link. Anything else with no ad ID is an AID click Meta failed to
+          // tag, which must be reported as a missing ad ID, not as organic.
+          const certifiedOrganic = touch.sourceType === 'DIRECT'
+            || (touch.sourceType === 'ORGANIC' && touch.linkId !== null);
+          adidMissingReason = certifiedOrganic ? 'ORGANIC_TOUCH' : 'MISSING_META_AD_ID';
         }
+        const effectiveCredential = lastPaidTouch ? lastCredential : firstTouch ? firstCredential : null;
+        const attributionTouchId = touch && effectiveCredential
+          ? createHash('sha256').update(effectiveCredential).digest('hex')
+          : null;
+        const touchSnapshot = (claims: NonNullable<typeof touch>) => ({
+          ownerUserId: claims.ownerUserId,
+          aid: claims.aid,
+          ownerName: claims.ownerName,
+          linkId: claims.linkId,
+          productId: claims.productId,
+          productName: claims.productName,
+          productCode: claims.productCode,
+          landingPageId: claims.landingPageId,
+          publishedRevision: claims.publishedRevision,
+          sourceType: claims.sourceType,
+          adId: claims.adId,
+          campaignId: claims.campaignId,
+          adsetId: claims.adsetId,
+          fbclid: claims.fbclid ?? null,
+          fbc: claims.fbc ?? null,
+          fbp: claims.fbp ?? null,
+          referrer: claims.referrer ?? null,
+          utmSource: claims.utmSource,
+          utmMedium: claims.utmMedium,
+          utmCampaign: claims.utmCampaign,
+          utmContent: claims.utmContent,
+          utmTerm: claims.utmTerm,
+          touchedAt: claims.touchedAt,
+          expiresAt: claims.expiresAt,
+          paid: claims.paid ?? null,
+          attributionConflict: claims.attributionConflict ?? false,
+          conflictDetail: claims.conflictDetail ?? null,
+        });
+        const attributionModel = touch
+          ? (firstTouch && lastPaidTouch && firstCredential !== lastCredential ? 'LAST_PAID' : 'FIRST_ONLY')
+          : null;
         const promo = input.promoCode
           ? await this.promotions.resolveForCheckout(
               tx,
@@ -533,9 +775,25 @@ export class OrdersService {
         const discount = promo ? computeDiscount(promo.rule, subtotal) : 0;
         const grandTotal = subtotal - discount + shippingTotal;
 
+        if (manualDraft) {
+          // Customer upsert above holds the customer row while this decision is
+          // made, so two operators cannot both act on an old risk preview.
+          classification = await this.customerRisk.classifyForNewOrder(normalizedPhone, [], { tx });
+          const risk = await this.draftOrderRisk(normalizedPhone, lines.map(l => l.skuId), lines.map(l => l.productId), classification, tx);
+          if (risk.requiresReview && !manualDraft.riskReviewed) {
+            throw new ConflictException('DRAFT_RISK_REVIEW_REQUIRED: contact/review this customer before confirming conversion');
+          }
+        }
         const created = await tx.order.create({
         data: {
           orderNumber,
+          ...(draftStartedAt ? { draftStartedAt, workbenchStartedAt: draftStartedAt } : {}),
+          ...(manualDraft ? {
+            draftConvertedManually: true,
+            orderStatus: 'CONFIRMED', confirmationStatus: 'CONFIRMED',
+            confirmedBy: manualDraft.operatorId, confirmedAt: new Date(),
+            confirmationNote: 'Manual checkout draft conversion; customer risk reviewed by operator',
+          } : {}),
           customerId: customer.id,
           customerClassification: classification.classification,
           optimizerId: touch?.ownerUserId ?? null,
@@ -553,6 +811,9 @@ export class OrdersService {
           trackingSessionId: input.trackingSessionId ?? null,
           idempotencyKey: input.idempotencyKey ?? null,
           idempotencyHash,
+          // An online order waits in ONLINE_PENDING until a verified gateway
+          // result moves it to PAID. COD keeps the column's own default.
+          ...(isOnlinePayment ? { paymentStatus: 'ONLINE_PENDING' as const } : {}),
           items: {
             create: lines.map((line) => ({
               skuId: line.skuId,
@@ -593,6 +854,8 @@ export class OrdersService {
             create: {
               sourceType: touch?.sourceType ?? (input.attribution.sourceType === 'OTHER' ? 'OTHER' : 'ORGANIC'),
               adid,
+              adidSource,
+              adidMissingReason,
               aidSnapshot: touch?.aid ?? null,
               optimizerId: touch?.ownerUserId ?? null,
               ownerNameSnapshot: touch?.ownerName ?? null,
@@ -607,6 +870,12 @@ export class OrdersService {
               campaignId: touch?.campaignId ?? null,
               adsetId: touch?.adsetId ?? null,
               adId: touch?.adId ?? null,
+              fbclid: touch?.fbclid ?? null,
+              ...(firstTouch ? { firstTouch: touchSnapshot(firstTouch) } : {}),
+              ...(lastPaidTouch ? { lastPaidTouch: touchSnapshot(lastPaidTouch) } : {}),
+              attributionModel,
+              attributionCapturedAt: touch ? new Date(touch.touchedAt) : null,
+              attributionTouchId,
               landingPageId: touch?.landingPageId ?? null,
               utmSource: touch?.utmSource ?? null,
               utmMedium: touch?.utmMedium ?? null,
@@ -617,13 +886,49 @@ export class OrdersService {
           },
           payments: {
             create: {
-              method: 'COD',
-              status: 'COD_PENDING',
+              // CARD, GCASH and BPI all ride the SUNRATE gateway; the
+              // channel itself lives on the payment attempt.
+              method: isOnlinePayment ? 'SUNRATE' : 'COD',
+              status: isOnlinePayment ? 'ONLINE_PENDING' : 'COD_PENDING',
               amount: new Prisma.Decimal(grandTotal),
             },
           },
         },
       });
+
+      // The gateway attempt is written in the same transaction as the order:
+      // an order without an attempt can never be paid, and an attempt
+      // without an order is a phantom. The payment session itself is started
+      // after the commit.
+      let payment: { attemptId: string; channel: string; env: string } | null = null;
+      if (paymentPlan.channel && paymentPlan.gateway) {
+        const attempt = await tx.sunratePaymentAttempt.create({
+          data: {
+            orderId: created.id,
+            channel: paymentPlan.channel,
+            env: paymentPlan.gateway.env,
+            merchantId: paymentPlan.gateway.merchantId,
+            merchantOrderNum: newMerchantOrderNum(),
+            amount: new Prisma.Decimal(grandTotal),
+            currency: 'PHP',
+            status: 'CREATING',
+            // The browser facts the Purchase event needs once the payment is
+            // verified. They are kept server-side so the event can still be
+            // sent when the shopper's tab is long gone.
+            lastResult: {
+              metaConsent: input.metaConsent === true,
+              fbp: input.fbp ?? touch?.fbp ?? null,
+              fbc: input.fbc ?? touch?.fbc ?? null,
+              eventSourceUrl: requestMeta?.eventSourceUrl ?? null,
+            },
+          },
+        });
+        payment = {
+          attemptId: attempt.id,
+          channel: paymentPlan.channel,
+          env: paymentPlan.gateway.env,
+        };
+      }
 
       // Claim the slot in the same transaction as the order. A later stock or
       // write failure rolls both rows back together.
@@ -659,18 +964,43 @@ export class OrdersService {
         },
       });
 
-      await persistConvertedDraft(tx, {
-        rawToken: input.checkoutDraftToken,
-        orderId: created.id,
-        customerName: input.customer.name,
-        customerPhone: input.customer.phone,
-      });
-
-      if (options?.checkoutDraftId) {
+      if (manualDraft) {
         await tx.checkoutDraft.update({
-          where: { id: options.checkoutDraftId },
-          data: { orderId: created.id },
+          where: { id: manualDraft.id },
+          data: {
+            status: 'CONVERTED', orderId: created.id, hasUserInput: true,
+            contactName: input.customer.name, contactPhone: input.customer.phone,
+            // Preserve the live follow-up contract: a converted draft closed
+            // as "wants to buy" and counts as contacted now. The operator's
+            // note and owner stay untouched.
+            followUpStatus: 'WANTS_TO_BUY', lastContactedAt: new Date(),
+            expiresAt: new Date(draftStartedAt!.getTime() + CHECKOUT_DRAFT_MAX_AGE_MS),
+          },
         });
+        await this.customerRisk.logRisk({ customerId: customer.id, orderId: created.id, riskType: classification.classification, previousOrderId: classification.previousOrderId, reason: classification.reason, operatorId: manualDraft.operatorId }, { tx });
+        await this.customerRisk.markDuplicates(normalizedPhone, { tx });
+        await tx.customerNote.create({ data: { customerId: customer.id, orderId: created.id, operatorId: manualDraft.operatorId, note: 'Manual checkout draft conversion: CONFIRM; risk reviewed by operator' } });
+        await tx.orderStatusHistory.create({ data: {
+          orderId: created.id, statusDomain: 'ORDER_STATUS', oldStatus: 'NEW', newStatus: 'CONFIRMED',
+          source: 'ADMIN', operatorId: manualDraft.operatorId,
+          comment: 'Converted from checkout draft; operator confirmed',
+        } });
+        await tx.orderStatusHistory.create({ data: { orderId: created.id, statusDomain: 'CONFIRMATION_STATUS', oldStatus: 'UNCONFIRMED', newStatus: 'CONFIRMED', source: 'ADMIN', operatorId: manualDraft.operatorId } });
+        await this.qianyi?.enqueue(tx, 'PUSH_ORDER', created.id);
+      } else {
+        await persistConvertedDraft(tx, {
+          rawToken: input.checkoutDraftToken,
+          orderId: created.id,
+          customerName: input.customer.name,
+          customerPhone: input.customer.phone,
+        });
+      }
+      if (draftStartedAt) {
+        await tx.orderStatusHistory.create({ data: {
+          orderId: created.id, statusDomain: 'CHECKOUT_DRAFT', oldStatus: 'OPEN', newStatus: 'CONVERTED',
+          source: manualDraft ? 'ADMIN' : 'STOREFRONT', operatorId: manualDraft?.operatorId ?? null,
+          comment: `Draft started ${draftStartedAt.toISOString()}; converted to order`,
+        } });
       }
 
       return {
@@ -679,8 +1009,9 @@ export class OrdersService {
         orderNumber,
         offerAvailabilityChanged: promo?.exhaustsTotalLimit ?? false,
         // Meta Purchase facts travel out of the transaction so the outbox
-        // write happens after the order is committed.
-        purchaseLines: lines.map((line) => ({
+        // write happens after the order is committed. An online order has no
+        // Purchase yet: the event waits for the verified PAID result.
+        purchaseLines: isOnlinePayment ? null : lines.map((line) => ({
           skuId: line.skuId,
           quantity: line.quantity,
           unitPrice: Number(line.unitPrice),
@@ -689,6 +1020,12 @@ export class OrdersService {
         // response and the Meta Purchase outbox, so a rounded DB value can
         // never diverge between the browser and server events.
         amount: Number(created.grandTotal),
+        // Click ids frozen in the signed touch at ad-click time. The checkout
+        // form may not resend them after a reload or a second tab.
+        touchFbp: touch?.fbp ?? null,
+        touchFbc: touch?.fbc ?? null,
+        // The handle the payment session is created from; null for COD.
+        payment,
       };
       });
 
@@ -703,36 +1040,66 @@ export class OrdersService {
         throw error;
       },
     );
-    if ('replay' in transactionOutcome) return transactionOutcome.replay;
-    const { order, customer, orderNumber, offerAvailabilityChanged, purchaseLines, amount } = transactionOutcome;
+    if ('replay' in transactionOutcome) {
+      if (trace) {
+        trace.replayed = true;
+        trace.phaseMs.transaction = Date.now() - transactionStart;
+        trace.phaseMs.total = Date.now() - traceStart;
+      }
+      return transactionOutcome.replay!;
+    }
+    if (trace) trace.phaseMs.transaction = Date.now() - transactionStart;
+    const { order, customer, orderNumber, offerAvailabilityChanged, purchaseLines, amount, touchFbp, touchFbc, payment } = transactionOutcome;
 
+    const postCommitStart = Date.now();
     if (offerAvailabilityChanged) {
-      await revalidateCache([CACHE_TAGS.STOREFRONT]);
+      await this.afterCommit(orderNumber, 'revalidate-storefront', () =>
+        revalidateCache([CACHE_TAGS.STOREFRONT]),
+      );
     }
 
+    if (manualDraft) {
+      if (trace) {
+        trace.phaseMs.postCommit = Date.now() - postCommitStart;
+        trace.phaseMs.total = Date.now() - traceStart;
+      }
+      return { orderNumber, orderStatus: 'CONFIRMED', confirmationStatus: 'CONFIRMED', riskType: null, requiresReview: false, grandTotal: amount };
+    }
     // Risk records (§10): the classification decision is logged. RPT/RECHECK
     // flip the confirmation status so the admin workbench review queue sees
-    // them (CUSTOMER_RISK_SPEC §17 manual confirmation).
-    await this.customerRisk.logRisk({
-      customerId: customer.id,
-      orderId: order.id,
-      riskType: classification.classification,
-      previousOrderId: classification.previousOrderId,
-      reason: classification.reason,
-    });
+    // them (CUSTOMER_RISK_SPEC §17 manual confirmation). The order is already
+    // committed, so each of these runs best effort: one failing step never
+    // turns a real order into "checkout failed", and never skips the others.
+    await this.afterCommit(orderNumber, 'risk-log', () =>
+      this.customerRisk.logRisk({
+        customerId: customer.id,
+        orderId: order.id,
+        riskType: classification.classification,
+        previousOrderId: classification.previousOrderId,
+        reason: classification.reason,
+      }),
+    );
     if (classification.classification === 'RPT' || classification.classification === 'RECHECK') {
-      await this.prisma.order.update({
-        where: { id: order.id },
-        data: { confirmationStatus: 'NEEDS_REVIEW' },
-      });
+      await this.afterCommit(orderNumber, 'review-flag', () =>
+        this.prisma.order.update({
+          where: { id: order.id },
+          data: { confirmationStatus: 'NEEDS_REVIEW' },
+        }),
+      );
     }
 
     // Duplicate detection (§14): mark, never delete.
-    await this.customerRisk.markDuplicates(normalizedPhone);
+    await this.afterCommit(orderNumber, 'duplicate-mark', () =>
+      this.customerRisk.markDuplicates(normalizedPhone),
+    );
+    if (trace) trace.phaseMs.postCommit = Date.now() - postCommitStart;
 
     // Meta Purchase through the durable outbox. The order is already
     // committed; a measurement hiccup must never surface as a checkout error.
-    if (requestMeta?.eventSourceUrl) {
+    // An online order has no Purchase yet — it waits for the verified PAID
+    // result, so that a pending or failed payment is never counted.
+    const metaStart = Date.now();
+    if (purchaseLines && requestMeta?.eventSourceUrl) {
       try {
         await this.metaCapi?.enqueuePurchase({
           orderNumber,
@@ -740,8 +1107,11 @@ export class OrdersService {
           value: amount,
           phone: normalizedPhone,
           consent: input.metaConsent === true,
-          fbp: input.fbp ?? null,
-          fbc: input.fbc ?? null,
+          // The browser normally sends its own cookies; a form submitted in
+          // another tab or after a reload may not, so the signed touch
+          // (captured at the ad click) is the fallback. Request wins.
+          fbp: input.fbp ?? touchFbp,
+          fbc: input.fbc ?? touchFbc,
           clientIp: requestMeta.clientIp,
           clientUserAgent: requestMeta.clientUserAgent,
           eventSourceUrl: requestMeta.eventSourceUrl,
@@ -749,6 +1119,11 @@ export class OrdersService {
       } catch {
         // Best effort; the row (when written) is retried by the worker.
       }
+    }
+
+    if (trace) {
+      trace.phaseMs.metaEnqueue = Date.now() - metaStart;
+      trace.phaseMs.total = Date.now() - traceStart;
     }
 
     const requiresReview = classification.classification === 'RPT' || classification.classification === 'RECHECK';
@@ -761,12 +1136,127 @@ export class OrdersService {
       // The same amount written to the order and sent to the Purchase outbox.
       // The confirmation page uses this instead of its cart preview total.
       grandTotal: amount,
+      // Only an online checkout carries the attempt handle the payment
+      // session is created from; COD has nothing to pay.
+      ...(payment ? { payment } : {}),
     };
   }
 
+  private async draftOrderRisk(
+    phone: string, skuIds: string[], productIds: string[],
+    classification: { classification: CustomerClassification; reason: string; previousOrderId: string | null },
+    db: Prisma.TransactionClient | PrismaService = this.prisma,
+  ) {
+    const orders = await db.order.findMany({
+      where: { customer: { normalizedPhone: phone }, OR: [
+        { riskFlags: { some: { resolved: false } } },
+        { createdAt: { gte: new Date(Date.now() - 24 * 60 * 60_000) }, items: { some: { OR: [
+          { skuId: { in: skuIds } }, { productId: { in: productIds } },
+        ] } } },
+      ] },
+      select: { id: true, orderNumber: true, riskFlags: { where: { resolved: false }, select: { flagType: true, reason: true } } },
+    });
+    return { ...classification, orders, requiresReview: ['RPT', 'RECHECK'].includes(classification.classification) || orders.length > 0 };
+  }
+
+  async checkoutDraftRisk(draftId: string, editedPhone?: string) {
+    const draft = await this.prisma.checkoutDraft.findUnique({ where: { id: draftId } });
+    if (!draft) throw new NotFoundException('Checkout draft not found');
+    const snapshot = draft.snapshot as Partial<CheckoutDraftSnapshot>;
+    const phone = normalizePhilippinePhone(editedPhone ?? snapshot?.customer?.phone ?? '');
+    if (!phone) return { validPhone: false, requiresReview: false, classification: null, reason: null, orders: [] };
+    const skuIds = (snapshot.items ?? []).map(item => item.skuId);
+    const skus = await this.prisma.sku.findMany({ where: { id: { in: skuIds } }, select: { variant: { select: { productId: true } } } });
+    return { validPhone: true, ...await this.draftOrderRisk(phone, skuIds, skus.map(sku => sku.variant.productId), await this.customerRisk.classifyForNewOrder(phone)) };
+  }
+
+  /** Manual conversion reuses checkout's pricing and reservation transaction. */
+  async convertDraftToOrder(
+    draftId: string,
+    operatorId: string,
+    options: {
+      expectedRevision?: number;
+      riskReviewed?: boolean;
+      customer?: CheckoutInput['customer'];
+      preferredDeliveryDate?: string | null;
+      customerNote?: string | null;
+    } = {},
+  ) {
+    const draft = await this.prisma.checkoutDraft.findUnique({ where: { id: draftId } });
+    if (!draft) throw new NotFoundException('Checkout draft not found');
+    if (draft.status !== 'OPEN') {
+      throw new ConflictException('This checkout draft was already converted or expired');
+    }
+    if (draft.expiresAt <= new Date()) throw new ConflictException('This checkout draft has expired');
+
+    const snapshot = (draft.snapshot ?? {}) as Partial<CheckoutDraftSnapshot>;
+    const customer = options.customer ?? snapshot.customer;
+    const missing = (value: unknown) => !value || String(value).trim() === '';
+    if (
+      !customer ||
+      missing(customer.name) ||
+      missing(customer.phone) ||
+      missing(customer.province) ||
+      missing(customer.city) ||
+      missing(customer.streetAddress)
+    ) {
+      throw new BadRequestException(
+        'DRAFT_INCOMPLETE: a name, phone, province, city and street address are required',
+      );
+    }
+    const items = (snapshot.items ?? []).filter(
+      (item) => item && item.skuId && Number.isInteger(item.quantity) && item.quantity > 0,
+    );
+    if (items.length === 0) {
+      throw new BadRequestException('DRAFT_INCOMPLETE: the draft has no items to order');
+    }
+
+    // No request metadata: an operator conversion must never reach Meta as a
+    // shopper Purchase, and has no attribution of its own.
+    const raw = {
+      customer: {
+        name: customer.name,
+        phone: customer.phone,
+        province: customer.province,
+        city: customer.city,
+        barangay: customer.barangay || null,
+        postalCode: customer.postalCode || null,
+        streetAddress: customer.streetAddress,
+        landmark: customer.landmark || null,
+      },
+      items: items.map((item) => ({ skuId: item.skuId, quantity: item.quantity })),
+      attribution: { sourceType: 'OTHER' as const },
+      customerNote: options.customerNote !== undefined ? options.customerNote : snapshot.customerNote || null,
+      preferredDeliveryDate: options.preferredDeliveryDate !== undefined ? options.preferredDeliveryDate : snapshot.preferredDeliveryDate ?? null,
+      // Only a code the shopper actually applied; raw typing is not a discount.
+      promoCode: snapshot.promoCodeApplied ?? null,
+      metaConsent: false,
+    };
+    const usable = checkoutSchema.safeParse(raw);
+    if (!usable.success) {
+      throw new BadRequestException(
+        `DRAFT_INVALID: ${usable.error.issues.map((issue) => issue.path.join('.')).join(', ')}`,
+      );
+    }
+
+    const result = await this.checkout(usable.data, undefined, {
+      id: draft.id,
+      tokenHash: draft.tokenHash,
+      revision: options.expectedRevision ?? draft.clientRevision,
+      operatorId,
+      riskReviewed: options.riskReviewed === true,
+    });
+    const created = await this.prisma.order.findUnique({
+      where: { orderNumber: result.orderNumber },
+      select: { id: true },
+    });
+    if (!created) throw new NotFoundException('The order could not be read back');
+    return this.get(created.id);
+  }
+
   /** Replays a checkout retry, or rejects a key reused with other details. */
-  private async findIdempotentOrder(key: string, fingerprint: string) {
-    const existing = await this.prisma.order.findUnique({
+  private async findIdempotentOrder(key: string, fingerprint: string, db: Prisma.TransactionClient | PrismaService = this.prisma) {
+    const existing = await db.order.findUnique({
       where: { idempotencyKey: key },
       select: {
         orderNumber: true,
@@ -804,11 +1294,108 @@ export class OrdersService {
     );
   }
 
+  /** Each row retains its own transaction and state-machine guards. */
+  async bulkOrders(input: BulkOrdersInput, operatorId: string) {
+    const results: { id: string; ok: boolean; error?: string }[] = [];
+    for (const id of input.ids) {
+      try {
+        switch (input.action) {
+          // No review decision; also re-evaluate history at confirmation time.
+          case 'confirm': await this.confirm(id, operatorId, undefined, { checkCurrentRisk: true }); break;
+          case 'cancel': await this.cancel(id, operatorId); break;
+          case 'assign': await this.assign(id, input.assignedToId, operatorId); break;
+          case 'status': await this.updateStatus(id, input.status, input.comment, operatorId); break;
+          case 'delete': await this.deleteOrder(id, operatorId); break;
+        }
+        results.push({ id, ok: true });
+      } catch (error) {
+        results.push({ id, ok: false, error: error instanceof Error ? error.message : 'Request failed' });
+      }
+    }
+    return { results };
+  }
+
+  /**
+   * Permanent deletion (ORDER_DELETE, super admin). Everything the order owns
+   * goes with it; a snapshot survives in order_deletion_log. Active stock
+   * reservations are released first, and an already-sent Qianyi sales order is
+   * closed synchronously before its job row disappears.
+   */
+  async deleteOrder(orderId: string, operatorId: string) {
+    await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM orders WHERE id = ${orderId}::uuid FOR UPDATE`;
+      const order = await tx.order.findUnique({
+        where: { id: orderId },
+        include: {
+          items: {
+            select: {
+              skuCodeSnapshot: true,
+              productNameSnapshot: true,
+              variantSnapshot: true,
+              quantity: true,
+              unitPrice: true,
+              lineTotal: true,
+            },
+          },
+          // Restrict-linked records disappear with the delete; keep their key
+          // facts in the audit snapshot so the removal can still be explained.
+          shipments: {
+            select: {
+              id: true, carrier: true, trackingNumber: true, status: true,
+              shippedAt: true, signedAt: true,
+            },
+          },
+          returnAcceptances: {
+            select: { id: true, shipmentId: true, reason: true, receivedAt: true },
+          },
+          mergeRecordsPrimary: { select: { id: true, mergedOrderId: true, createdAt: true } },
+          mergeRecordsMerged: { select: { id: true, primaryOrderId: true, createdAt: true } },
+        },
+      });
+      if (!order) throw new NotFoundException('Order not found');
+
+      // Before anything is closed or removed: an order that is paid (or
+      // being paid) online keeps its money question open.
+      await this.assertOnlinePaymentSettled(tx, orderId);
+
+      const qianyiAction = this.qianyi
+        ? await this.qianyi.closeForDeleteWithin(tx, orderId, operatorId)
+        : 'none';
+
+      // Active reservations only: shipped stock is already consumed, so its
+      // reservation rows carry no remaining quantity to give back.
+      await this.inventory.releaseForOrder(tx, orderId);
+
+      // Restrict FKs must go before the order row; the rest cascade.
+      await tx.orderMergeRecord.deleteMany({
+        where: { OR: [{ primaryOrderId: orderId }, { mergedOrderId: orderId }] },
+      });
+      await tx.returnAcceptance.deleteMany({ where: { orderId } });
+      await tx.shipment.deleteMany({ where: { orderId } });
+      await tx.inventoryReservation.deleteMany({ where: { orderId } });
+
+      await tx.orderDeletionLog.create({
+        data: {
+          orderId,
+          orderNumber: order.orderNumber,
+          orderStatus: order.orderStatus,
+          customerId: order.customerId,
+          grandTotal: order.grandTotal,
+          qianyiAction,
+          operatorId,
+          snapshot: JSON.parse(JSON.stringify(order)) as Prisma.InputJsonValue,
+        },
+      });
+      await tx.order.delete({ where: { id: orderId } });
+    });
+  }
+
   /** §22.1 confirm: only while still unconfirmed and not cancelled. */
   async confirm(
     orderId: string,
     operatorId: string,
     decision?: { decision: 'CONFIRM' | 'CANCEL' | 'REQUEST_INFO'; note?: string },
+    options: { checkCurrentRisk?: boolean } = {},
   ) {
     const { updated, promoReleased, backInStockClaims } = await this.prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM orders WHERE id = ${orderId}::uuid FOR UPDATE`;
@@ -825,6 +1412,20 @@ export class OrdersService {
       }
       if (order.orderStatus === 'SHIPPING' || order.orderStatus === 'SIGNED') {
         throw new BadRequestException('Shipped orders cannot be confirmed');
+      }
+
+      if (options.checkCurrentRisk) {
+        // Serialize bulk confirmations for one customer, so the next row sees
+        // the preceding confirmation. The stored entry classification stays.
+        await tx.$queryRaw`SELECT id FROM customers WHERE id = ${order.customerId}::uuid FOR UPDATE`;
+        const customer = await tx.customer.findUnique({
+          where: { id: order.customerId }, select: { normalizedPhone: true },
+        });
+        if (!customer) throw new NotFoundException('Customer not found');
+        const live = await this.customerRisk.classifyForNewOrder(customer.normalizedPhone, [orderId], { tx });
+        if (live.classification === 'RPT' || live.classification === 'RECHECK') {
+          throw new BadRequestException(`LIVE_RISK_REVIEW_REQUIRED: ${live.classification}; ${live.reason}`);
+        }
       }
 
       // CUSTOMER_RISK_SPEC §17 gate: RPT/RECHECK orders need a manual customer
@@ -991,6 +1592,9 @@ export class OrdersService {
         if (order.orderStatus === 'SHIPPING') {
           throw new BadRequestException('Shipped orders cannot be cancelled');
         }
+        // An order that is paid (or being paid) online is not cancelled from
+        // here: the money question comes first.
+        await this.assertOnlinePaymentSettled(tx, orderId);
 
         const updated = await tx.order.update({
           where: { id: orderId },
@@ -1037,6 +1641,19 @@ export class OrdersService {
       orderBy: { name: 'asc' },
     });
     return users;
+  }
+
+  /** The optimizers that actually appear on orders, for the workbench filter. */
+  async optimizerOptions() {
+    const rows = await this.prisma.order.groupBy({
+      by: ['optimizerId', 'optimizerAidSnapshot', 'optimizerNameSnapshot'],
+      where: { optimizerId: { not: null } },
+    });
+    return rows
+      .flatMap((row) => row.optimizerId && row.optimizerAidSnapshot
+        ? [{ id: row.optimizerId, aid: row.optimizerAidSnapshot, name: row.optimizerNameSnapshot }]
+        : [])
+      .sort((a, b) => (a.name ?? a.aid).localeCompare(b.name ?? b.aid));
   }
 
   /**
@@ -1732,14 +2349,24 @@ export class OrdersService {
     }
     const primary = await tx.order.findUnique({
       where: { id: input.primaryOrderId },
-      include: { shippingAddress: true, items: true },
+      include: { shippingAddress: true, items: true, payments: { select: { method: true, status: true } } },
     });
     const merged = await tx.order.findUnique({
       where: { id: input.mergedOrderId },
-      include: { shippingAddress: true, items: true },
+      include: { shippingAddress: true, items: true, payments: { select: { method: true, status: true } } },
     });
     if (!primary || !merged) throw new NotFoundException('Order not found');
     if (primary.id === merged.id) throw new BadRequestException('Cannot merge an order with itself');
+
+    // An order that carries an online payment is not merged: its money
+    // belongs to that order alone, and the payment records would end up on
+    // the wrong side of the merge.
+    const onlinePayments = [...primary.payments, ...merged.payments].filter(
+      (payment) => payment.method === 'SUNRATE' && payment.status !== 'FAILED',
+    );
+    if (onlinePayments.length > 0) {
+      throw new ConflictException('ONLINE_PAYMENT_ORDER_NOT_MERGEABLE');
+    }
 
     const mergeable = new Set(['NEW', 'PENDING', 'CONFIRMED']);
     if (!mergeable.has(primary.orderStatus) || !mergeable.has(merged.orderStatus)) {
@@ -1894,15 +2521,35 @@ export class OrdersService {
     if (query.classification) where.customerClassification = query.classification;
     if (query.confirmation) where.confirmationStatus = query.confirmation;
     if (query.assignedTo) where.assignedToId = query.assignedTo;
+    if (query.optimizerId) where.optimizerId = query.optimizerId;
+    if (query.aid) where.optimizerAidSnapshot = { equals: query.aid, mode: 'insensitive' };
+    const attributionFilter: Prisma.OrderAttributionWhereInput = {};
+    if (query.adId) attributionFilter.OR = [{ adId: query.adId }, { adid: query.adId }];
+    if (query.campaignId) attributionFilter.campaignId = query.campaignId;
+    if (attributionFilter.OR || attributionFilter.campaignId) where.attribution = { is: attributionFilter };
     if (query.risk) {
       where.riskFlags = { some: { flagType: query.risk, resolved: false } };
     }
     if (query.search) {
-      where.OR = [
-        { orderNumber: { contains: query.search, mode: 'insensitive' } },
-        { customer: { name: { contains: query.search, mode: 'insensitive' } } },
-        { customer: { normalizedPhone: { contains: query.search, mode: 'insensitive' } } },
+      const search = query.search;
+      const or: Prisma.OrderWhereInput[] = [
+        { orderNumber: { contains: search, mode: 'insensitive' } },
+        { customer: { name: { contains: search, mode: 'insensitive' } } },
+        { customer: { normalizedPhone: { contains: search, mode: 'insensitive' } } },
       ];
+      // The customer table is canonical (+63…), the operator types the local
+      // form (09…): match the canonical prefix of whatever was typed, so a
+      // number the customer wrote down still finds its orders.
+      for (const fragment of phoneSearchFragments(search)) {
+        or.push({ customer: { normalizedPhone: { contains: fragment, mode: 'insensitive' } } });
+        or.push({ shippingAddress: { phone: { contains: fragment } } });
+      }
+      if (phoneSearchFragments(search).length > 0) {
+        const digits = search.replace(/\D/g, '');
+        or.push({ customer: { normalizedPhone: { contains: digits } } });
+        or.push({ shippingAddress: { phone: { contains: digits } } });
+      }
+      where.OR = or;
     }
     if (query.dateFrom || query.dateTo) {
       // From/To are Manila calendar days — the day the operator lives in — and
@@ -1914,10 +2561,19 @@ export class OrdersService {
         lt: query.dateTo ? manilaDayEndExclusive(query.dateTo) : undefined,
       };
     }
-    // The customer phone is an exact match: the customer history opens with
-    // it and a partial number would mix two customers.
+    // Full numbers still identify exactly one customer (history drill-down).
+    // Incomplete digits are a workbench search, not proof of identity.
     if (query.phone) {
-      where.customer = { normalizedPhone: query.phone };
+      const exact = normalizePhilippinePhone(query.phone);
+      if (exact) where.customer = { normalizedPhone: exact };
+      else {
+        const fragments = phoneSearchFragments(query.phone);
+        const digits = query.phone.replace(/\D/g, '');
+        where.AND = [{ OR: fragments.length ? [...new Set([...fragments, digits])].flatMap(fragment => [
+          { customer: { normalizedPhone: { contains: fragment } } },
+          { shippingAddress: { phone: { contains: fragment } } },
+        ]) : [{ id: { in: [] } }] }];
+      }
     }
     // The product filter looks at the SKU snapshot of the order lines.
     if (query.sku) {
@@ -2058,12 +2714,13 @@ export class OrdersService {
       ? { AND: [base, this.queueWhere(query.queue, currentUserId ?? query.assignedTo)] }
       : base;
 
-    const orderBy =
-      query.sort === 'newest'
-        ? { createdAt: 'desc' as const }
-        : query.sort === 'verify'
-          ? { verificationAssignments: { _count: 'asc' as const } }
-          : { createdAt: 'asc' as const };
+    // The indexed clock is draftStartedAt ?? createdAt. Sort in the database,
+    // including a deterministic tie-breaker, before applying skip/take.
+    const direction = query.sort === 'newest' ? 'desc' as const : 'asc' as const;
+    const orderBy: Prisma.OrderOrderByWithRelationInput | Prisma.OrderOrderByWithRelationInput[] =
+      query.sort === 'verify'
+        ? { verificationAssignments: { _count: 'asc' } }
+        : [{ workbenchStartedAt: direction }, { id: direction }];
 
     const [items, total] = await this.prisma.$transaction([
       this.prisma.order.findMany({
@@ -2109,11 +2766,25 @@ export class OrdersService {
           shippingAddress: true,
           // The advertising number the table shows; null on organic orders.
           // Prefer the real Meta ad ID, falling back to the stable link number.
-          attribution: { select: { adid: true, adId: true } },
+          attribution: {
+            select: {
+              adid: true, adId: true, aidSnapshot: true, campaignId: true, adsetId: true,
+              fbclid: true, sourceType: true, touchedAt: true,
+              firstTouch: true, lastPaidTouch: true,
+              attributionModel: true, attributionCapturedAt: true, attributionTouchId: true,
+            },
+          },
           // The payment method of the order (the first payment row).
           payments: {
             select: { method: true, status: true },
             orderBy: { createdAt: 'asc' },
+            take: 1,
+          },
+          // The newest gateway attempt: an online order's method is the
+          // channel the shopper actually paid with (Card / GCash / BPI).
+          sunrateAttempts: {
+            select: { channel: true, status: true },
+            orderBy: { createdAt: 'desc' },
             take: 1,
           },
           verificationAssignments: {
@@ -2153,6 +2824,9 @@ export class OrdersService {
       return {
         ...rest,
         adid: attribution?.adId ?? attribution?.adid ?? null,
+        adId: attribution?.adId ?? null,
+        campaignId: attribution?.campaignId ?? null,
+        attributionDetail: attribution,
         // The table shows a photo per line; the nested product rows never leave
         // the admin API, only the flat URL below does.
         items: rest.items.map((item) => {
@@ -2161,6 +2835,9 @@ export class OrdersService {
         }),
         // The payment method (COD / online) the table filters on.
         paymentMethod: rest.payments?.[0]?.method ?? null,
+        // For an online order the readable method is the gateway channel.
+        paymentChannel: rest.sunrateAttempts?.[0]?.channel ?? null,
+        paymentAttemptStatus: rest.sunrateAttempts?.[0]?.status ?? null,
         assignedTo: rest.assignedToId
           ? { id: rest.assignedToId, name: nameById.get(rest.assignedToId) ?? null }
           : null,
@@ -2453,6 +3130,50 @@ export class OrdersService {
    * Every failure path resolves to one uniform 404 so the response can never
    * reveal whether an order exists.
    */
+  /**
+   * Minimal, non-PII facts the success page may show once the receipt
+   * capability proves the caller placed this order. A cancelled order is
+   * treated as invalid so the page never celebrates a dead order.
+   */
+  async receiptStatus(orderNumber: string): Promise<{ ok: true; placedAt: string } | null> {
+    const order = await this.prisma.order.findUnique({
+      where: { orderNumber: orderNumber.trim().toUpperCase() },
+      select: { orderStatus: true, createdAt: true },
+    });
+    if (!order || order.orderStatus === 'CANCELLED') return null;
+    return { ok: true, placedAt: order.createdAt.toISOString() };
+  }
+
+  /**
+   * F04: read-only recovery for a checkout attempt whose response never
+   * reached the browser. The client holds the idempotency key, so possession
+   * of that key is the capability; the response is limited to what the
+   * success page and Purchase event need (number, state, total, items), never
+   * customer or payment data. A missing or cancelled order reads as null so
+   * the caller keeps polling and, at worst, asks the shopper to retry the same
+   * attempt with the same key.
+   */
+  async attemptStatus(idempotencyKey: string) {
+    const order = await this.prisma.order.findUnique({
+      where: { idempotencyKey },
+      select: {
+        orderNumber: true,
+        orderStatus: true,
+        grandTotal: true,
+        createdAt: true,
+        items: { select: { skuId: true, quantity: true } },
+      },
+    });
+    if (!order || order.orderStatus === 'CANCELLED') return null;
+    return {
+      orderNumber: order.orderNumber,
+      orderStatus: order.orderStatus,
+      grandTotal: Number(order.grandTotal),
+      placedAt: order.createdAt.toISOString(),
+      items: order.items,
+    };
+  }
+
   async lookup(orderNumber?: string | null, phone?: string | null) {
     const notFound = () =>
       new NotFoundException(

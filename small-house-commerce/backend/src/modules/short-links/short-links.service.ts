@@ -58,7 +58,15 @@ export class ShortLinksService {
 
   async resolve(code: string): Promise<{ target: string } | null> {
     if (!CODE_PATTERN.test(code)) return null;
-    const row = await this.prisma.shortLink.findUnique({ where: { code } });
+    // Codes are random base64url, so letter case carries no meaning, and links
+    // get retyped or lowercased on the way through ad platforms. Match exactly
+    // first so a case-only collision (astronomically unlikely) still resolves
+    // its own row, then fall back to a case-insensitive lookup.
+    const row =
+      (await this.prisma.shortLink.findUnique({ where: { code } })) ??
+      (await this.prisma.shortLink.findFirst({
+        where: { code: { equals: code, mode: 'insensitive' } },
+      }));
     return row ? { target: row.target } : null;
   }
 }

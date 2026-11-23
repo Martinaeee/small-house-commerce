@@ -6,9 +6,11 @@ import type { AdminOrderListRow } from "@/lib/admin-api";
 import AdminOrdersPage from "./page";
 
 const api = vi.hoisted(() => ({
+  bulkOrders: vi.fn(),
   listOrders: vi.fn(),
   orderCounts: vi.fn(),
   listAssignees: vi.fn(),
+  orderOptimizers: vi.fn(),
   listSkus: vi.fn(),
   skuSearch: vi.fn(),
   assignOrder: vi.fn(),
@@ -22,6 +24,7 @@ const api = vi.hoisted(() => ({
   recordVerificationContact: vi.fn(),
   customerOrderHistory: vi.fn(),
   getOrder: vi.fn(),
+  handoverSummary: vi.fn(),
 }));
 
 const navigation = vi.hoisted(() => ({ query: "" }));
@@ -111,6 +114,8 @@ function renderPage() {
 
 beforeEach(() => {
   cleanup();
+  window.localStorage.removeItem("luwag_orders_columns_v1");
+  window.localStorage.removeItem("luwag_orders_views_v1");
   setAdminLang("en");
   navigation.query = "";
   perms.denied.clear();
@@ -146,6 +151,7 @@ beforeEach(() => {
     },
   });
   api.listAssignees.mockResolvedValue([{ id: "staff-a", name: "客服 A" }]);
+  api.orderOptimizers.mockResolvedValue([{ id: "opt-a", aid: "OP-1", name: "投手 A" }]);
   api.skuSearch.mockResolvedValue({ total: 0, items: [] });
   api.customerOrderHistory.mockResolvedValue({
     phone: "+639171224466",
@@ -162,9 +168,66 @@ beforeEach(() => {
     orders: [],
   });
   api.orderVerification.mockResolvedValue({ assignment: null, items: [], events: [] });
+  // The drawer loads the order detail on its overview tab (the payment
+  // block), so the open-drawer tests have to answer both calls.
+  api.handoverSummary.mockResolvedValue({
+    handedOver: [],
+    outstanding: [],
+    rejected: 0,
+    withdrawn: 0,
+    complete: false,
+    events: [],
+  });
+  api.getOrder.mockImplementation(async (id: string) => ({
+    ...row(),
+    id,
+    items: [],
+    payments: [],
+    sunrateAttempts: [],
+  }));
+});
+
+describe("current-page bulk selection", () => {
+  it("selects only visible rows and clears selection after changing page", async () => {
+    api.listOrders.mockResolvedValue({ items: [row(), row({ id: "order-2", orderNumber: "PH100005" })], total: 25, page: 1, pageSize: 20 });
+    const view = renderPage();
+    await screen.findByText("PH100004");
+    await userEvent.click(screen.getByLabelText("Select all orders on this page"));
+    expect(screen.getByText("2 selected (this page)")).toBeInTheDocument();
+    expect(api.bulkOrders).not.toHaveBeenCalled();
+    navigation.query = "page=2";
+    view.rerender(<AdminI18nProvider><AdminOrdersPage /></AdminI18nProvider>);
+    await waitFor(() => expect(screen.queryByText("2 selected (this page)")).not.toBeInTheDocument());
+  });
+
+  it("keeps a partial selection marked and clears it when filters change", async () => {
+    api.listOrders.mockResolvedValue({ items: [row(), row({ id: "order-2", orderNumber: "PH100005" })], total: 2, page: 1, pageSize: 20 });
+    const view = renderPage();
+    await screen.findByText("PH100004");
+    await userEvent.click(screen.getByLabelText("Select order PH100004"));
+    expect(screen.getByLabelText("Select all orders on this page")).toBePartiallyChecked();
+    navigation.query = "phone=0917";
+    view.rerender(<AdminI18nProvider><AdminOrdersPage /></AdminI18nProvider>);
+    await waitFor(() => expect(screen.queryByText("1 selected (this page)")).not.toBeInTheDocument());
+  });
 });
 
 describe("the order workbench list", () => {
+  it("marks an operator-converted draft and displays the draft start in the list time cell", async () => {
+    api.listOrders.mockResolvedValue({ items: [row({ draftStartedAt: "2026-10-20T11:00:00Z", draftConvertedManually: true })], total: 1, page: 1, pageSize: 20 });
+    renderPage();
+    expect(await screen.findByText("Converted from draft")).toBeInTheDocument();
+    const time = document.querySelector('time[datetime="2026-10-20T11:00:00Z"]');
+    expect(time).not.toBeNull();
+  });
+  it("does not mark a draft the shopper finished by checking out themselves", async () => {
+    api.listOrders.mockResolvedValue({ items: [row({ draftStartedAt: "2026-10-20T11:00:00Z" })], total: 1, page: 1, pageSize: 20 });
+    renderPage();
+    await screen.findByText("PH100004");
+    expect(screen.queryByText("Converted from draft")).not.toBeInTheDocument();
+    const time = document.querySelector('time[datetime="2026-10-20T11:00:00Z"]');
+    expect(time).not.toBeNull();
+  });
   it("shows the wide ERP table with the real fields", async () => {
     renderPage();
 
@@ -344,6 +407,33 @@ describe("dashboard and notification deep links", () => {
     await user.click(screen.getByRole("button", { name: "More filters" }));
     const box = screen.getByRole("checkbox", { name: "FAILED" }) as HTMLInputElement;
     expect(box.checked).toBe(true);
+  });
+
+  it("picks the optimizer from the AIDs in the orders", async () => {
+    const user = userEvent.setup();
+    navigation.query = "aid=OP-1";
+    renderPage();
+
+    await waitFor(() => expect(api.listOrders).toHaveBeenCalled());
+    expect(api.listOrders.mock.calls[0][0]).toMatchObject({ aid: "OP-1" });
+    await user.click(screen.getByRole("button", { name: "More filters" }));
+    const select = await screen.findByLabelText("Optimizer AID");
+    expect((select as HTMLSelectElement).value).toBe("OP-1");
+    expect(
+      screen.getByRole("option", { name: "投手 A · OP-1" }),
+    ).toBeTruthy();
+  });
+
+  it("keeps the free-text AID box when no optimizer has an order yet", async () => {
+    api.orderOptimizers.mockResolvedValue([]);
+    const user = userEvent.setup();
+    renderPage();
+
+    await waitFor(() => expect(api.listOrders).toHaveBeenCalled());
+    await user.click(screen.getByRole("button", { name: "More filters" }));
+    const input = screen.getByLabelText("Optimizer AID") as HTMLInputElement;
+    expect(input.tagName).toBe("INPUT");
+    expect(input.getAttribute("placeholder")).toBe("OP-…");
   });
 
   it("sends no payment status when the parameter is absent", async () => {

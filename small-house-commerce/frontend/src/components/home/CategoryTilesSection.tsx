@@ -36,7 +36,7 @@ export function CategoryTilesSection({ section, previewDevice, interactionMode, 
                 {...(interactionMode === "preview" ? {} : trackAttrs("CategoryClick", section, index + 1))}
                 className={circles ? styles.circle : styles.tile} style={circles ? undefined : layout?.imageStyle}>
                 {entry.imageUrl ? (
-                  <HomepageContentImage src={entry.imageUrl} className="h-full w-full" />
+                  <HomepageContentImage src={entry.imageUrl} className="h-full w-full" sizes="(max-width: 767px) 50vw, 25vw" />
                 ) : <PlaceholderImage label="" className="h-full w-full" />}
               </Link>
               <p data-homepage-role="label" title={entry.name} className={styles.label}>{entry.name}</p>

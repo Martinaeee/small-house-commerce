@@ -62,7 +62,10 @@ export function CreateCampaignLinkDialog({ productId: initialProductId, landingP
     if (!product || (landingPageId && !page) || (sourceType === "FB_POST" ? !postDate : !name.trim()) || operation.current) return;
     operation.current = true; setBusy(true); setError(null);
     try {
-      const input = { productId, landingPageId: landingPageId || null, variantId: variantId || null, ...(name.trim() ? { name: name.trim() } : {}), sourceType, ...(sourceType === "FB_POST" ? { postDate, postUrl: postUrl.trim() || null } : {}), ...Object.fromEntries(metadata.map(([key]) => [key, fields[key]?.trim() || null])) };
+      const manualMetadata = sourceType === "FB_POST"
+        ? Object.fromEntries(metadata.map(([key]) => [key, fields[key]?.trim() || null]))
+        : {};
+      const input = { productId, landingPageId: landingPageId || null, variantId: variantId || null, ...(name.trim() ? { name: name.trim() } : {}), sourceType, attributionMode: "CL" as const, ...(sourceType === "FB_POST" ? { postDate, postUrl: postUrl.trim() || null } : {}), ...manualMetadata };
       const link = copyFrom ? await marketingApi.cloneLink(copyFrom.id, input) : await marketingApi.createLink(input);
       onSaved(link);
     } catch (reason) { const message = reason instanceof Error ? reason.message : String(reason); setError(reason instanceof AdminApiError && reason.status < 500 ? message : `${message} ${t("marketing_post_create_uncertain")}`); }
@@ -100,7 +103,7 @@ export function CreateCampaignLinkDialog({ productId: initialProductId, landingP
           <label className="space-y-1 text-sm">{t("marketing_post_date")}<input type="date" required className={fieldClass} value={postDate} onChange={event => setPostDate(event.target.value)} /></label>
           <label className="space-y-1 text-sm sm:col-span-2"><span>{t("marketing_post_url")}</span><input type="url" maxLength={2048} className={fieldClass} value={postUrl} onChange={event => setPostUrl(event.target.value)} placeholder="https://www.facebook.com/..." /><span className="text-xs text-admin-muted">{t("marketing_post_url_hint")}</span></label>
         </>}
-        {metadata.map(([key, label, maxLength]) => <label key={key} className="space-y-1 text-sm">{t(label)}<input className={fieldClass} maxLength={maxLength} value={fields[key] ?? ""} onChange={(event) => setFields((current) => ({ ...current, [key]: event.target.value }))} /></label>)}
+        {sourceType === "FB_POST" && metadata.map(([key, label, maxLength]) => <label key={key} className="space-y-1 text-sm">{t(label)}<input className={fieldClass} maxLength={maxLength} value={fields[key] ?? ""} onChange={(event) => setFields((current) => ({ ...current, [key]: event.target.value }))} /></label>)}
       </fieldset>
       <p className="text-xs text-admin-muted">{t("marketing_link_immutable")}</p>
       <div className="sticky bottom-0 z-10 -mx-6 -mb-6 flex justify-end gap-2 border-t border-admin-border bg-card px-6 pb-6 pt-4"><button type="button" className="rounded-lg border border-admin-border px-3 py-2 text-sm" disabled={busy} onClick={onClose}>{t("common_cancel")}</button><button type="submit" className="rounded-lg bg-cta px-4 py-2 text-sm font-semibold text-white disabled:opacity-40" disabled={busy || !context || unavailable || (sourceType === "FB_POST" ? !postDate : !name.trim())}>{t("marketing_link_save")}</button></div>

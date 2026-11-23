@@ -34,6 +34,13 @@ enum CampaignLinkStatus {
   DISABLED
 }
 
+enum CampaignLinkAttributionMode {
+  /** Legacy links identified by the opaque `cl` code. */
+  CL
+  /** AID-first links: the URL carries the optimizer AID and no `cl`. */
+  AID
+}
+
 model CampaignLink {
   id                  String             @id @default(uuid(7)) @db.Uuid
   code                String             @unique
@@ -50,6 +57,7 @@ model CampaignLink {
   postUrl             String?            @map("post_url") @db.VarChar(2048)
   archivedAt          DateTime?          @map("archived_at") @db.Timestamptz(3)
   sourceType          SourceType         @map("source_type")
+  attributionMode     CampaignLinkAttributionMode @default(CL) @map("attribution_mode")
   campaignId          String?            @map("campaign_id")
   adsetId             String?            @map("adset_id")
   adId                String?            @map("ad_id")

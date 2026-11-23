@@ -48,6 +48,34 @@ describe("detail block scope", () => {  it.each(["optionValueId", "variantId"] a
     ).toThrow();
   });
 
+  it.each([
+    ["accepts a carousel group key", "launch-day-组-1", true],
+    ["rejects an overlong carousel group key", "g".repeat(65), false],
+  ] as const)("create: %s", (_name, groupKey, ok) => {
+    const payload = {
+      ...base,
+      detailBlocks: [
+        { type: "IMAGE", url: "https://cdn.test/detail.jpg", groupKey },
+      ],
+    };
+    if (!ok) {
+      expect(() => createProductSchema.parse(payload)).toThrow();
+      return;
+    }
+    expect(createProductSchema.parse(payload).detailBlocks[0].groupKey).toBe(groupKey);
+  });
+
+  it("update: keeps a carousel group key and drops it when omitted", () => {
+    const parsed = updateProductSchema.parse({
+      detailBlocks: [
+        { type: "IMAGE", url: "https://cdn.test/detail.jpg", groupKey: "summer-set" },
+        { type: "IMAGE", url: "https://cdn.test/single.jpg" },
+      ],
+    });
+    expect(parsed.detailBlocks![0].groupKey).toBe("summer-set");
+    expect(parsed.detailBlocks![1].groupKey).toBeUndefined();
+  });
+
   it("keeps a shared block shared", () => {
     const parsed = createProductSchema.parse({
       ...base,

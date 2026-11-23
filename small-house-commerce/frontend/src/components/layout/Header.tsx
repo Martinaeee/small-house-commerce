@@ -86,7 +86,7 @@ export function Header({ navItems, brand, mode = "live" }: HeaderProps) {
   const brandName = brand?.brandName ?? "LUWAG";
   const marks = (
     <>
-      <span className="hidden items-center lg:inline-flex">
+      <span className="header-wordmark hidden items-center lg:inline-flex">
         <BrandWordmark
           brand={brand}
           variant="horizontal"
@@ -95,7 +95,7 @@ export function Header({ navItems, brand, mode = "live" }: HeaderProps) {
           assetClassName="h-[52px] w-auto max-w-[240px]"
         />
       </span>
-      <span className="inline-flex items-center lg:hidden">
+      <span className="header-wordmark inline-flex items-center lg:hidden">
         <BrandWordmark
           brand={brand}
           variant="horizontal"

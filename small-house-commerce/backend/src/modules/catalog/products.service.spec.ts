@@ -392,6 +392,31 @@ describe('ProductsService card media batches', () => {
     expect(result).toHaveProperty('cardMedia.unselected.cover.url', '/uploads/pdp-red-card.webp');
   });
 
+  it('skips a video-first gallery when choosing the list effective cover', async () => {
+    const row = cardProduct('vid');
+    row.images = [
+      { id: 'vid-video', url: '/uploads/vid.mp4', type: 'VIDEO', altText: null, sortOrder: 0,
+        optionValueId: null, variantId: null, isScene: false },
+      { id: 'vid-shared', url: '/shared.webp', type: 'IMAGE', altText: null, sortOrder: 1,
+        optionValueId: null, variantId: null, isScene: false },
+    ];
+    const [result] = await createService(createPrismaMock([row])).storefrontByIds(['vid']);
+    expect(result.effectiveCoverMedia).toMatchObject({ id: 'vid-shared', url: '/shared.webp', type: 'IMAGE' });
+  });
+
+  it('keeps the video gallery entry first but never uses it as the PDP cover', async () => {
+    const row = cardProduct('vid-pdp');
+    row.images = [
+      { id: 'vid-pdp-video', url: '/uploads/vid.mp4', type: 'VIDEO', altText: null, sortOrder: 0,
+        optionValueId: null, variantId: null, isScene: false },
+      { id: 'vid-pdp-shared', url: '/shared.webp', type: 'IMAGE', altText: null, sortOrder: 1,
+        optionValueId: null, variantId: null, isScene: false },
+    ];
+    const result = await createService(createPrismaMock([row])).storefrontGetBySlug('vid-pdp');
+    expect(result.initialMediaSet!.media[0]).toMatchObject({ type: 'VIDEO', url: '/uploads/vid.mp4' });
+    expect(result.effectiveCoverMedia).toMatchObject({ type: 'IMAGE', url: '/shared.webp' });
+  });
+
   it('does not query media for an empty page', async () => {
     const prisma = createPrismaMock([]);
     await createService(prisma).storefrontByIds([]);

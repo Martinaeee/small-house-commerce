@@ -18,9 +18,11 @@ function renderWorkspace(
 ): {
   onAddMedia: ReturnType<typeof vi.fn>;
   onReorder: ReturnType<typeof vi.fn>;
+  onPatch: ReturnType<typeof vi.fn>;
 } {
   const onAddMedia = vi.fn();
   const onReorder = vi.fn();
+  const onPatch = vi.fn();
   render(
     <AdminI18nProvider>
       <DetailMediaWorkspace
@@ -28,7 +30,7 @@ function renderWorkspace(
         pending={false}
         scopeOptions={SCOPES}
         onAddMedia={onAddMedia}
-        onPatch={vi.fn()}
+        onPatch={onPatch}
         onMove={vi.fn()}
         onReorder={onReorder}
         onRemove={vi.fn()}
@@ -36,7 +38,7 @@ function renderWorkspace(
       />
     </AdminI18nProvider>,
   );
-  return { onAddMedia, onReorder };
+  return { onAddMedia, onReorder, onPatch };
 }
 
 describe("DetailMediaWorkspace batch scope", () => {
@@ -137,5 +139,71 @@ describe("DetailMediaWorkspace drag affordance", () => {
       document.querySelector('[aria-roledescription="sortable"]'),
     ).toBeNull();
     expect(document.querySelector("[data-media-drag-handle]")).toBeNull();
+  });
+});
+
+describe("DetailMediaWorkspace carousel selection", () => {
+  const rows = (): DetailMediaWorkspaceProps["blocks"] => [
+    { type: "IMAGE", url: "/uploads/a.jpg", altText: "A", sortOrder: "0" },
+    { type: "IMAGE", url: "/uploads/b.jpg", altText: "B", sortOrder: "1" },
+    { type: "IMAGE", url: "/uploads/c.jpg", altText: "C", sortOrder: "2" },
+    { type: "IMAGE", url: "/uploads/d.jpg", altText: "D", sortOrder: "3" },
+  ];
+
+  async function selectRows(user: ReturnType<typeof userEvent.setup>, numbers: number[]) {
+    for (const number of numbers) {
+      await user.click(screen.getByRole("checkbox", { name: new RegExp("选择第 " + number + " 块") }));
+    }
+  }
+
+  it("marks consecutively selected rows as one carousel group", async () => {
+    const user = userEvent.setup();
+    const { onPatch } = renderWorkspace({ blocks: rows() });
+
+    await selectRows(user, [1, 2]);
+    await user.click(screen.getByRole("button", { name: "设为轮播组" }));
+
+    const patches = onPatch.mock.calls.map(([index, patch]) => [index, patch]);
+    expect(patches).toEqual([
+      [0, { groupKey: expect.any(String) }],
+      [1, { groupKey: expect.any(String) }],
+    ]);
+    expect(patches[0]![1].groupKey).toBe(patches[1]![1].groupKey);
+  });
+
+  it("needs at least two rows before a carousel can be created", async () => {
+    const user = userEvent.setup();
+    const { onPatch } = renderWorkspace({ blocks: rows() });
+
+    await user.click(screen.getByRole("checkbox", { name: /选择第 1 块/ }));
+    expect(screen.getByRole("button", { name: "设为轮播组" })).toBeDisabled();
+    expect(onPatch).not.toHaveBeenCalled();
+  });
+
+  it("refuses a non-consecutive selection until the rows are adjacent", async () => {
+    const user = userEvent.setup();
+    const { onPatch } = renderWorkspace({ blocks: rows() });
+
+    await selectRows(user, [1, 3]);
+    expect(screen.getByRole("button", { name: "设为轮播组" })).toBeDisabled();
+    expect(screen.getByText(/轮播组必须是连续的行/)).toBeVisible();
+    expect(onPatch).not.toHaveBeenCalled();
+  });
+
+  it("clears the carousel grouping from selected rows", async () => {
+    const user = userEvent.setup();
+    const { onPatch } = renderWorkspace({
+      blocks: rows().map((row, index) =>
+        index === 1 || index === 2 ? { ...row, groupKey: "existing" } : row,
+      ) as DetailMediaWorkspaceProps["blocks"],
+    });
+
+    await selectRows(user, [2, 3]);
+    await user.click(screen.getByRole("button", { name: "取消轮播组" }));
+
+    expect(onPatch.mock.calls.map(([index, patch]) => [index, patch])).toEqual([
+      [1, { groupKey: undefined }],
+      [2, { groupKey: undefined }],
+    ]);
   });
 });

@@ -658,7 +658,8 @@ describe("HeroSlider", () => {
     const mobile = document.querySelector("[data-hero-mobile-media]");
     expect(mobile).not.toBeNull();
     const mobileImg = mobile?.querySelector("img");
-    expect(mobileImg?.getAttribute("src")).toBe(optimizedUploadImage("/uploads/hero-mobile.jpg", 1440));
+    expect(mobileImg?.getAttribute("src")).toBe(optimizedUploadImage("/uploads/hero-mobile.jpg", 750));
+    expect(mobileImg?.getAttribute("srcSet")).toContain("750w");
     // the desktop media layer stays present (hidden on mobile by CSS)
     expect(document.querySelector("[data-hero-media]")).not.toBeNull();
   });

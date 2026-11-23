@@ -2,6 +2,7 @@
 
 import { useState, type ReactNode } from "react";
 import type { DetailBlockFormValue } from "@/components/admin/ProductForm";
+import { newId } from "@/lib/admin-id";
 import { AdminHelpTip } from "@/components/admin/AdminHelpTip";
 import { MediaAddRow } from "@/components/admin/product-form/MediaAddRow";
 import { MediaGallery } from "@/components/admin/product-form/MediaGallery";
@@ -23,7 +24,7 @@ export interface DetailMediaWorkspaceProps {
   batchUpload?: MediaBatchUpload;
   /** Shared / option-value / exact-variant choices for the batch and per-row scope selects. */
   scopeOptions: readonly { value: string; label: string }[];
-  onAddMedia(media: UploadedMedia, scope: DetailMediaScope): void;
+  onAddMedia(media: UploadedMedia, scope: DetailMediaScope, opts?: { groupKey?: string }): void;
   onPatch(index: number, patch: Partial<DetailBlockFormValue>): void;
   onMove(index: number, delta: -1 | 1): void;
   onReorder?(from: number, to: number): void;
@@ -35,6 +36,39 @@ export function DetailMediaWorkspace({ blocks, pending, highlightKey = null, fie
   const localBatch = useMediaBatchUpload({ disabled: pending });
   const uploadTask = batchUpload ?? localBatch;
   const [batchScope, setBatchScope] = useState("");
+  // Rows ticked for a carousel action; pruned to live keys every render so a
+  // removed row can never keep a stale tick.
+  const [ticked, setTicked] = useState<ReadonlySet<string>>(new Set());
+  const liveKeys = new Set(blocks.map((block, index) => `detailBlocks.${index}`));
+  const selection = new Set([...ticked].filter((key) => liveKeys.has(key)));
+  const toggleSelect = (key: string): void => {
+    setTicked((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+  const selectedIndex = blocks
+    .map((_, index) => index)
+    .filter((index) => selection.has(`detailBlocks.${index}`));
+  const contiguous =
+    selectedIndex.length >= 2 &&
+    selectedIndex.every((value, position) =>
+      position === 0 ? true : value === selectedIndex[position - 1]! + 1,
+    );
+  const allGrouped =
+    selectedIndex.length > 0 &&
+    selectedIndex.every((index) => Boolean(blocks[index]?.groupKey?.trim()));
+  const markCarousel = (): void => {
+    const groupKey = newId();
+    for (const index of selectedIndex) onPatch(index, { groupKey });
+    setTicked(new Set());
+  };
+  const unmarkCarousel = (): void => {
+    for (const index of selectedIndex) onPatch(index, { groupKey: undefined });
+    setTicked(new Set());
+  };
   const summary = summarizeAdminMedia(blocks.map((block) => ({ ...block, sortOrder: Number(block.sortOrder.trim() || "0") || 0 })));
   const highlightedKey = highlightKey?.match(/^detailBlocks\.\d+(?=\.|$)/)?.[0] ?? null;
   const setScope = (index: number, value: string): void => {
@@ -75,18 +109,58 @@ export function DetailMediaWorkspace({ blocks, pending, highlightKey = null, fie
         onScopeChange={setBatchScope}
         scopeLabel={t("product_detail_upload_scope")}
       />
+      {selection.size > 0 ? (
+        <div className="mt-2 flex flex-wrap items-center gap-2 rounded-lg bg-background px-3 py-2">
+          <span className="text-sm text-ink-secondary">{t("product_detail_selected_count", { count: selection.size })}</span>
+          <button
+            type="button"
+            onClick={markCarousel}
+            disabled={!contiguous}
+            title={contiguous ? undefined : t("product_detail_selection_not_contiguous")}
+            className="inline-flex h-8 items-center justify-center rounded-lg bg-cta px-3 text-xs font-semibold text-cta-foreground transition-colors hover:bg-cta-hover disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {t("product_detail_set_carousel")}
+          </button>
+          <button
+            type="button"
+            onClick={unmarkCarousel}
+            disabled={!allGrouped}
+            className="inline-flex h-8 items-center justify-center rounded-lg border border-border px-3 text-xs font-semibold text-cta transition-colors hover:border-cta disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {t("product_detail_unset_carousel")}
+          </button>
+          <button
+            type="button"
+            onClick={() => setTicked(new Set())}
+            className="text-xs text-ink-secondary hover:text-ink"
+          >
+            {t("product_detail_clear_selection")}
+          </button>
+          {!contiguous ? <span className="text-xs text-sale">{t("product_detail_selection_not_contiguous")}</span> : null}
+        </div>
+      ) : null}
       {blocks.length === 0 ? <p className="mt-3 text-sm text-ink-muted">{t("product_detail_empty")}</p> : null}
       <MediaGallery
           scope={t("product_detail_title")}
           listLabel={t("product_detail_blocks_aria")}
           items={blocks.map((block, index) => {
             const scopeValue = detailScopeValue(block);
+            const groupKey = block.groupKey?.trim() || null;
+            const groupNumber = groupKey
+              ? new Map(
+                  [...new Set(blocks.map((row) => row.groupKey?.trim() || null))]
+                    .filter(Boolean)
+                    .map((key, position) => [key, position + 1]),
+                ).get(groupKey) ?? 0
+              : 0;
             return {
               ...block,
               key: `detailBlocks.${index}`,
               domId: `product-detail-block-${index}`,
               scopeValue,
-              scopeLabel: detailScopeLabel(scopeValue, scopeOptions),
+              scopeLabel: groupNumber
+                ? `${detailScopeLabel(scopeValue, scopeOptions)} · ${t("product_detail_carousel_chip", { index: groupNumber })}`
+                : detailScopeLabel(scopeValue, scopeOptions),
             };
           })}
           scopeOptions={scopeOptions}
@@ -105,6 +179,7 @@ export function DetailMediaWorkspace({ blocks, pending, highlightKey = null, fie
             next: (number) => t("product_detail_move_down", { number }),
             remove: t("product_detail_remove"),
             scope: (number) => t("product_detail_scope_aria", { number }),
+            select: (number) => t("product_detail_select_row", { number }),
           }}
           onUpload={(key, file) => {
             const index = Number(key.split(".")[1]);
@@ -114,6 +189,8 @@ export function DetailMediaWorkspace({ blocks, pending, highlightKey = null, fie
           onMove={(key, delta) => onMove(Number(key.split(".")[1]), delta)}
           onReorder={onReorder}
           onRemove={(key) => onRemove(Number(key.split(".")[1]))}
+          selection={selection}
+          onToggleSelect={toggleSelect}
         />
     </section>
   );

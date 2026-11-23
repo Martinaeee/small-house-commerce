@@ -14,6 +14,7 @@ import { PlaceholderImage } from "@/components/ui/PlaceholderImage";
 import { formatPrice } from "@/components/ui/PriceBox";
 import { cardPricePresentation } from "@/lib/product-card-presentation";
 import { optimizedUploadImage } from "@/lib/image-url";
+import { productCoverMedia } from "@/lib/product-cover";
 import {
   createInitialSelection,
   resolveSelection,
@@ -65,7 +66,7 @@ export function CartRecommendations() {
           const directSku = directAddSku(product);
           const pct = directSku ? discountPct(directSku) : 0;
           const price = cardPricePresentation(derived);
-          const image = product.effectiveCoverMedia;
+          const image = productCoverMedia(product);
           const busy = busySlug === product.slug;
           const added = addedSlug === product.slug;
           return (

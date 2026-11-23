@@ -1,0 +1,84 @@
+// SUNRATE acquiring integration (design 2026-11-20): payment attempts,
+// notification audit trail and the per-method enable switches.
+//
+// Attempts are the authoritative link between a commercial order and a
+// gateway transaction. One ACTIVE attempt per order is enforced by a partial
+// unique index in SQL (Prisma's DSL cannot express partial unique indexes).
+
+enum SunrateAttemptStatus {
+  /// Row created inside the checkout transaction; the gateway session has not
+  /// been initiated yet.
+  CREATING
+  /// Gateway accepted the payment session; awaiting the shopper's payment.
+  PENDING
+  /// Gateway initiation outcome is unknown (timeout / 5xx) or a query could
+  /// not determine the result. Only a verified result moves it forward.
+  UNKNOWN
+  /// Payment verified as received (notification or query).
+  SUCCEEDED
+  /// Payment verified as failed.
+  FAILED
+  /// Evidence conflicts or is insufficient; requires human reconciliation.
+  REVIEW
+}
+
+// Backend switches per payment method: COD starts enabled, online methods
+// start disabled. Runtime visibility = DB switch AND gateway readiness.
+// `method` is a storefront channel key (COD/CARD/GCASH/BPI), not the
+// payments table enum — CARD/GCASH/BPI all ride the SUNRATE gateway.
+model PaymentMethodConfig {
+  method    String        @id @db.VarChar(16)
+  enabled   Boolean       @default(false)
+  revision  Int           @default(0)
+  updatedBy String?       @map("updated_by") @db.Uuid
+  updatedAt DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("payment_method_configs")
+}
+
+model SunratePaymentAttempt {
+  id               String               @id @default(uuid(7)) @db.Uuid
+  orderId          String               @map("order_id") @db.Uuid
+  paymentId        String?              @unique @map("payment_id") @db.Uuid
+  /// card | gcash | bpi — the gateway channel this attempt uses.
+  channel          String               @db.VarChar(16)
+  /// test | production — attempts never cross environments.
+  env              String               @db.VarChar(12)
+  merchantId       String               @map("merchant_id")
+  /// The order number we send to SUNRATE. Unique per merchant, never reused
+  /// and never changed on a retry of the same attempt.
+  merchantOrderNum String               @unique @map("merchant_order_num")
+  amount           Decimal              @db.Decimal(10, 2)
+  currency         String               @db.VarChar(3)
+  transId          String?              @map("trans_id")
+  /// Masked snapshot only when the channel actually returned it.
+  cardBrand        String?              @map("card_brand")
+  cardLast4        String?              @map("card_last4")
+  status           SunrateAttemptStatus @default(CREATING)
+  lastQueryAt      DateTime?            @map("last_query_at") @db.Timestamptz(3)
+  lastResult       Json?                @map("last_result")
+  createdAt        DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime             @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  order   Order    @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  payment Payment? @relation(fields: [paymentId], references: [id])
+
+  @@index([orderId])
+  @@map("sunrate_payment_attempts")
+}
+
+// Notification / query audit: whitelisted fields only — never the signing
+// key, card data or the whole raw HTTP request.
+model SunrateNotificationEvent {
+  id             String   @id @default(uuid(7)) @db.Uuid
+  orderNum       String   @map("order_num") @db.VarChar(64)
+  attemptId      String?  @map("attempt_id") @db.Uuid
+  signatureValid Boolean
+  processed      Boolean  @default(false)
+  outcome        String?  @db.VarChar(24)
+  payload        Json?
+  receivedAt     DateTime @default(now()) @map("received_at") @db.Timestamptz(3)
+
+  @@index([orderNum])
+  @@map("sunrate_notification_events")
+}

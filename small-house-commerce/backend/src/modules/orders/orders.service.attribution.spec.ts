@@ -1,5 +1,5 @@
 import { ConfigService } from '@nestjs/config';
-import { createHmac, hkdfSync } from 'node:crypto';
+import { createHash, createHmac, hkdfSync } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Prisma } from '../../generated/prisma/client.js';
 import { CampaignLinksService } from '../marketing/campaign-links.service.js';
@@ -17,7 +17,7 @@ const SKU = '66666666-6666-4666-a666-666666666666';
 const SECOND_SKU = '77777777-7777-4777-a777-777777777777';
 const START = new Date('2026-10-11T01:00:00Z');
 
-function setup() {
+function setup(metaCapi?: { enqueuePurchase: ReturnType<typeof vi.fn> }) {
   let inTransaction = false;
   const writes: Prisma.OrderCreateInput[] = [];
   const profile = { displayName: 'Owner at touch', status: 'ACTIVE' };
@@ -39,6 +39,9 @@ function setup() {
     customer: { upsert: vi.fn(async () => ({ id: 'customer-1' })) },
     sku,
     campaignLink: { findUnique: vi.fn(async () => link) },
+    optimizerProfile: { findUnique: vi.fn(async ({ where }: { where: { aid?: string; userId?: string } }) => where.aid === 'OP-1' ? { id: PROFILE, userId: USER, displayName: 'Owner at touch', status: 'ACTIVE' } : null) },
+    user: { findUnique: vi.fn(async () => ({ status: 'ACTIVE' })) },
+    product: { findFirst: vi.fn(async () => ({ id: PRODUCT, name: 'Entry product', productCode: 'ENTRY-001', slug: 'chair', status: 'ACTIVE' })) },
     $queryRaw: vi.fn(async () => [{ nextval: 1n }]),
     $transaction: vi.fn(async (work: (client: typeof tx) => unknown) => { inTransaction = true; try { return await work(tx); } finally { inTransaction = false; } }),
   };
@@ -56,6 +59,7 @@ function setup() {
     touch,
     { resolveForCheckout: vi.fn() } as never,
     { deliverClaims: vi.fn(async () => undefined) } as never,
+    metaCapi as never,
   );
   const input = (marketingCredential?: string, attribution: Record<string, unknown> = {}) => checkoutSchema.parse({ customer: { name: 'Jane', phone: '09171234567', province: 'Metro Manila', city: 'Manila', streetAddress: '1 Main St' }, items: [{ skuId: SKU, quantity: 1 }], marketingCredential, attribution });
   const credential = async () => {
@@ -70,6 +74,9 @@ function preAdidCredential(credential: string, overrides: Record<string, unknown
   const claims = JSON.parse(Buffer.from(credential.split('.')[0]!, 'base64url').toString());
   Object.assign(claims, overrides);
   delete claims.adid;
+  delete claims.adIdSource;
+  delete claims.adIdMissingReason;
+  delete claims.linkResolution;
   const body = Buffer.from(JSON.stringify(claims)).toString('base64url');
   const key = Buffer.from(hkdfSync('sha256', 'order-attribution-only-unit-test-secret', 'luwag.marketing', 'marketing-touch:v1', 32));
   return `${body}.${createHmac('sha256', key).update(body).digest('base64url')}`;
@@ -84,6 +91,65 @@ describe('immutable order marketing attribution', () => {
     await h.service.checkout(h.input(await h.credential(), { sourceType: 'DIRECT', optimizerId: PROFILE, aid: 'FORGED', adId: 'forged-ad', landingPageId: PROFILE }));
     expect(h.writes[0]).toMatchObject({ optimizerId: USER, optimizerAidSnapshot: 'OP-1', optimizerNameSnapshot: 'Owner at touch', attribution: { create: { optimizerId: USER, aidSnapshot: 'OP-1', ownerNameSnapshot: 'Owner at touch', sourceType: 'META_AD', adid: 'ad-A', linkId: LINK, productId: PRODUCT, productNameSnapshot: 'Entry product', productCodeSnapshot: 'ENTRY-001', landingPageId: PAGE, publishedRevision: 3, adId: 'ad-A', utmContent: 'creative', utmTerm: 'chair', touchedAt: START, legacy: false } } });
     expect(h.resolvedInside).toEqual([true]);
+  });
+
+  it('snapshots first and last paid touches independently and hashes only the last credential', async () => {
+    const h = setup();
+    const first = await h.touch.touch({ code: h.link.code, visitKey: 'tab-1', adId: '120200000000001', fbclid: 'first-click' });
+    vi.setSystemTime(new Date(START.getTime() + 3600e3));
+    const last = await h.touch.touch({ code: h.link.code, visitKey: 'tab-2', adId: '120200000000002', fbclid: 'last-click' });
+    const input = h.input(last.credential!);
+    input.marketingFirstCredential = first.credential!;
+    await h.service.checkout(input);
+    expect(h.writes[0]).toMatchObject({
+      attribution: { create: {
+        adid: '120200000000002',
+        adidSource: 'META_DYNAMIC',
+        adId: '120200000000002',
+        fbclid: 'last-click',
+        firstTouch: { adId: '120200000000001', fbclid: 'first-click', aid: 'OP-1' },
+        lastPaidTouch: { adId: '120200000000002', fbclid: 'last-click', aid: 'OP-1' },
+        attributionModel: 'LAST_PAID',
+        attributionCapturedAt: new Date(START.getTime() + 3600e3),
+        attributionTouchId: createHash('sha256').update(last.credential!).digest('hex'),
+      } },
+    });
+  });
+
+  it('resolves one credential once and records a first-only model when first and last coincide', async () => {
+    const h = setup();
+    const credential = await h.credential();
+    const input = h.input(credential);
+    input.marketingFirstCredential = credential;
+    await h.service.checkout(input);
+    expect(vi.mocked(h.touch.resolve)).toHaveBeenCalledTimes(1);
+    expect(h.writes[0]).toMatchObject({
+      attribution: { create: {
+        firstTouch: { adId: 'ad-A' },
+        lastPaidTouch: { adId: 'ad-A' },
+        attributionModel: 'FIRST_ONLY',
+        attributionTouchId: createHash('sha256').update(credential).digest('hex'),
+      } },
+    });
+  });
+
+  it('retains an organic first touch without calling it a last paid touch', async () => {
+    const h = setup();
+    Object.assign(h.link, { sourceType: 'ORGANIC', adId: null, campaignId: null, adsetId: null, utmMedium: null });
+    const result = await h.touch.touch({ code: h.link.code, visitKey: 'tab-1' });
+    expect(result.paid).toBe(false);
+    await h.service.checkout(h.input(result.credential!));
+    expect(h.writes[0]).toMatchObject({
+      optimizerId: USER,
+      optimizerAidSnapshot: 'OP-1',
+      attribution: { create: {
+        sourceType: 'ORGANIC', adid: null, optimizerId: USER, linkId: LINK, adId: null,
+        firstTouch: { sourceType: 'ORGANIC', paid: false },
+        attributionModel: 'FIRST_ONLY',
+        attributionTouchId: createHash('sha256').update(result.credential!).digest('hex'),
+      } },
+    });
+    expect((h.writes[0].attribution as { create: Record<string, unknown> }).create).not.toHaveProperty('lastPaidTouch');
   });
 
   it('snapshots each URL ad ID on orders that share one registered Meta link', async () => {
@@ -148,29 +214,162 @@ describe('immutable order marketing attribution', () => {
     expect(h.writes[0]).toMatchObject({ attribution: { create: { adid: '120-legacy-real', linkId: null } } });
   });
 
+  // Dynamic AID mode: one AID link is reused by several Meta ads, so the
+  // order must freeze whatever ad ID the click actually carried — without
+  // requiring that ad to exist on a CampaignLink row.
+  it('stores the dynamic Meta ad ID as the order advertising number for an AID touch', async () => {
+    const h = setup();
+    const result = await h.touch.touch({
+      aid: 'OP-1',
+      path: '/products/chair',
+      visitKey: 'tab-aid-1',
+      adId: '120250687133730075',
+      fbclid: 'IwAR1234567890',
+    });
+    await h.service.checkout(h.input(result.credential!));
+    expect(h.writes[0]).toMatchObject({
+      optimizerId: USER,
+      optimizerAidSnapshot: 'OP-1',
+      attribution: { create: {
+        sourceType: 'META_AD',
+        aidSnapshot: 'OP-1',
+        adId: '120250687133730075',
+        adid: '120250687133730075',
+        adidSource: 'META_DYNAMIC',
+        adidMissingReason: null,
+        linkId: null,
+        fbclid: 'IwAR1234567890',
+      } },
+    });
+  });
+
+  it('uses the dynamic Meta ad ID as the order advertising number when it differs from the link number', async () => {
+    const h = setup();
+    Object.assign(h.link, { adid: 'AD-OP-1-261111-01', adId: null });
+    const result = await h.touch.touch({ code: h.link.code, visitKey: 'tab-1', adId: '120200000000002' });
+    await h.service.checkout(h.input(result.credential!));
+    expect(h.writes[0]).toMatchObject({
+      attribution: { create: {
+        adid: '120200000000002', adidSource: 'META_DYNAMIC',
+        adId: '120200000000002', linkId: LINK,
+      } },
+    });
+  });
+
+  it('keeps the link number when the dynamic ad ID is missing', async () => {
+    const h = setup();
+    Object.assign(h.link, { adid: 'AD-OP-1-261111-01', adId: null });
+    await h.service.checkout(h.input(await h.credential()));
+    expect(h.writes[0]).toMatchObject({
+      attribution: { create: { adid: 'AD-OP-1-261111-01', adidSource: 'LINK' } },
+    });
+  });
+
+  it('does not treat the link static ad ID as a dynamic Meta ID', async () => {
+    const h = setup();
+    Object.assign(h.link, { adid: 'AD-OP-1-261111-01', adId: '120200000000001' });
+    await h.service.checkout(h.input(await h.credential()));
+    expect(h.writes[0]).toMatchObject({
+      attribution: { create: {
+        adid: 'AD-OP-1-261111-01', adidSource: 'LINK', adId: '120200000000001',
+      } },
+    });
+  });
+
+  it('falls back to the link static ad ID when the dynamic value is invalid', async () => {
+    const h = setup();
+    Object.assign(h.link, { adid: 'AD-OP-1-261111-01', adId: '120200000000001' });
+    const result = await h.touch.touch({ code: h.link.code, visitKey: 'tab-1', adId: '{{ad.id}}' });
+    await h.service.checkout(h.input(result.credential!));
+    expect(h.writes[0]).toMatchObject({
+      attribution: { create: {
+        adid: 'AD-OP-1-261111-01', adidSource: 'LINK',
+        adId: '120200000000001', linkId: LINK,
+      } },
+    });
+  });
+
+  it('keeps legacy AID-only dynamic ad IDs attributable on orders', async () => {
+    const h = setup();
+    const result = await h.touch.touch({ aid: 'OP-1', adId: '120200000000002', path: '/products/chair', visitKey: 'tab-1' });
+    await h.service.checkout(h.input(result.credential!));
+    expect(h.writes[0]).toMatchObject({
+      attribution: { create: {
+        adId: '120200000000002', adid: '120200000000002', adidSource: 'META_DYNAMIC',
+        linkId: null, optimizerId: USER, aidSnapshot: 'OP-1',
+      } },
+    });
+  });
+
+  it('attributes two orders from the same AID link to their own dynamic ad IDs', async () => {    const h = setup();
+    for (const adId of ['120250687133730075', '120250687133740075']) {
+      const result = await h.touch.touch({
+        aid: 'OP-1',
+        path: '/products/chair',
+        visitKey: `tab-${adId}`,
+        adId,
+        fbclid: `click-${adId}`,
+      });
+      await h.service.checkout(h.input(result.credential!));
+    }
+    expect(h.writes).toHaveLength(2);
+    expect(h.writes[0]).toMatchObject({ attribution: { create: { adid: '120250687133730075', adId: '120250687133730075' } } });
+    expect(h.writes[1]).toMatchObject({ attribution: { create: { adid: '120250687133740075', adId: '120250687133740075' } } });
+  });
+
+  it('creates the order without an ad ID and records why it is missing', async () => {
+    const h = setup();
+    const result = await h.touch.touch({
+      aid: 'OP-1',
+      path: '/products/chair',
+      visitKey: 'tab-aid-no-ad',
+    });
+    await h.service.checkout(h.input(result.credential!));
+    expect(h.writes).toHaveLength(1);
+    expect(h.writes[0].grandTotal.toString()).toBe('199');
+    expect(h.writes[0]).toMatchObject({
+      attribution: { create: {
+        adid: null,
+        adId: null,
+        adidSource: 'NONE',
+        adidMissingReason: 'MISSING_META_AD_ID',
+        aidSnapshot: 'OP-1',
+      } },
+    });
+  });
+
+  it('records LINK provenance for a verified campaign-link order', async () => {
+    const h = setup();
+    await h.service.checkout(h.input(await h.credential()));
+    expect(h.writes[0]).toMatchObject({
+      attribution: { create: { adid: 'ad-A', adidSource: 'LINK', adidMissingReason: null } },
+    });
+  });
+
+  it('records TOKEN_INVALID when a credential was supplied but could not be verified', async () => {
+    const h = setup();
+    await h.service.checkout(h.input('not-a-real-credential'));
+    expect(h.writes[0]).toMatchObject({
+      attribution: { create: { adid: null, adidSource: 'NONE', adidMissingReason: 'TOKEN_INVALID' } },
+    });
+  });
+
+  it('records NO_TOUCH for an organic checkout without a credential', async () => {
+    const h = setup();
+    await h.service.checkout(h.input());
+    expect(h.writes[0]).toMatchObject({
+      attribution: { create: { adid: null, adidSource: 'NONE', adidMissingReason: 'NO_TOUCH' } },
+    });
+  });
+
   it('keeps manual OTHER orders unattributed without fabricating a paid source', async () => {
     const h = setup();
     await h.service.checkout(h.input(undefined, { sourceType: 'OTHER' }));
     expect(h.writes[0]).toMatchObject({ attribution: { create: { sourceType: 'OTHER', optimizerId: null, linkId: null, touchedAt: null } } });
   });
 
-  it('claims the checkout draft inside the order transaction and links the order back', async () => {
-    const h = setup();
-    await h.service.checkout(h.input(undefined, {}), undefined, { checkoutDraftId: 'draft-1' });
-    expect(h.tx.checkoutDraft.updateMany).toHaveBeenCalledWith({
-      where: { id: 'draft-1', status: 'OPEN' },
-      data: { status: 'CONVERTED', followUpStatus: 'WANTS_TO_BUY', lastContactedAt: expect.any(Date) },
-    });
-    expect(h.tx.checkoutDraft.update).toHaveBeenCalledWith({ where: { id: 'draft-1' }, data: { orderId: 'order-1' } });
-  });
-
-  it('refuses a second operator converting the same draft', async () => {
-    const h = setup();
-    h.tx.checkoutDraft.updateMany.mockResolvedValueOnce({ count: 0 } as never);
-    await expect(h.service.checkout(h.input(undefined, {}), undefined, { checkoutDraftId: 'draft-1' }))
-      .rejects.toMatchObject({ status: 409 });
-    expect(h.writes).toHaveLength(0);
-  });
+  // Draft claim/conversion coverage moved to orders.service.draft-conversion.spec.ts
+  // and the PostgreSQL workbench integration, where the conversion contract lives.
 
   it('attributes a mixed-product cart once without changing totals, stock reservations or risk processing', async () => {
     const h = setup();
@@ -185,6 +384,61 @@ describe('immutable order marketing attribution', () => {
     expect(h.risk.logRisk).toHaveBeenCalledWith(expect.objectContaining({ orderId: 'order-1', riskType: 'NEW' }));
     expect(h.risk.markDuplicates).toHaveBeenCalledWith('+639171234567');
     expect(result).toMatchObject({ orderStatus: 'NEW', confirmationStatus: 'UNCONFIRMED', requiresReview: false });
+  });
+});
+
+describe('Purchase click ids for the Conversions API', () => {
+  const REQUEST_META = {
+    eventSourceUrl: 'https://luwag.shop/checkout/confirm',
+    clientIp: '203.0.113.10',
+    clientUserAgent: 'vitest',
+  };
+  const FBP = 'fb.2.1700000000.1234567890';
+  const FBC = 'fb.2.1700000000.9876543210';
+
+  it('falls back to the touch claims when the checkout request omits click ids', async () => {
+    const enqueuePurchase = vi.fn().mockResolvedValue(true);
+    const h = setup({ enqueuePurchase });
+
+    // The click ids live in the signed touch, not in the form submission.
+    const clicked = await h.touch.touch({ code: h.link.code, visitKey: 'tab-1', fbclid: 'click-1', fbp: FBP, fbc: FBC });
+    const input = h.input(clicked.credential!, {});
+    input.metaConsent = true;
+
+    await h.service.checkout(input, REQUEST_META);
+
+    expect(enqueuePurchase).toHaveBeenCalledWith(
+      expect.objectContaining({ fbp: FBP, fbc: FBC }),
+    );
+  });
+
+  it('prefers the checkout request value over the touch claims', async () => {
+    const enqueuePurchase = vi.fn().mockResolvedValue(true);
+    const h = setup({ enqueuePurchase });
+    const touched = await h.touch.touch({ code: h.link.code, visitKey: 'tab-1', fbp: 'fb.1.1.old', fbc: 'fb.1.1.old' });
+    const input = h.input(touched.credential!, {});
+    input.metaConsent = true;
+    input.fbp = 'fb.2.1700000000.111';
+    input.fbc = 'fb.2.1700000000.222';
+
+    await h.service.checkout(input, REQUEST_META);
+
+    expect(enqueuePurchase).toHaveBeenCalledWith(
+      expect.objectContaining({ fbp: 'fb.2.1700000000.111', fbc: 'fb.2.1700000000.222' }),
+    );
+  });
+
+  it('sends no click ids at all when neither the request nor the touch carries them', async () => {
+    const enqueuePurchase = vi.fn().mockResolvedValue(true);
+    const h = setup({ enqueuePurchase });
+    const input = h.input(undefined, {});
+    input.metaConsent = true;
+
+    await h.service.checkout(input, REQUEST_META);
+
+    expect(enqueuePurchase).toHaveBeenCalledWith(
+      expect.objectContaining({ fbp: null, fbc: null }),
+    );
   });
 });
 

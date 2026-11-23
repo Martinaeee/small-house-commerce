@@ -57,35 +57,78 @@ export class AnalyticsService {
 
     // One HMAC verification per distinct credential, not per event: the batch
     // comes from a single browser tab, so every event above two credentials
-    // is the rare case.
-    const linkIds = new Map<string, string | null>();
-    const resolveLinkId = async (credential: string | undefined): Promise<string | null> => {
+    // is the rare case. The whole verified claim set is cached because every
+    // attribution column below comes from it, never from the public body.
+    type ResolvedClaims = Awaited<ReturnType<MarketingTouchService['resolve']>>;
+    const claimsCache = new Map<string, ResolvedClaims>();
+    const resolveClaims = async (credential: string | undefined): Promise<ResolvedClaims> => {
       if (!credential) return null;
-      const cached = linkIds.get(credential);
-      if (cached !== undefined) return cached;
+      if (claimsCache.has(credential)) return claimsCache.get(credential)!;
       // An unverifiable credential is the shopper's problem to fix by touching
       // a real link again; the event itself is still valid traffic and stores
-      // with campaign_link_id NULL, exactly like historical rows.
-      let linkId: string | null = null;
+      // with NULL attribution, exactly like historical rows.
+      let claims: ResolvedClaims = null;
       try {
-        linkId = (await this.marketingTouch.resolve(credential))?.linkId ?? null;
+        claims = await this.marketingTouch.resolve(credential);
       } catch {
-        linkId = null;
+        claims = null;
       }
-      linkIds.set(credential, linkId);
-      return linkId;
+      claimsCache.set(credential, claims);
+      return claims;
     };
 
     const rows: Prisma.AnalyticsEventCreateManyInput[] = [];
     for (const batchEvent of events) {
       if (!this.isStorefrontEvent(batchEvent)) continue;
+      const claims = await resolveClaims(batchEvent.marketingCredential);
       const row = this.toRow(batchEvent);
-      row.campaignLinkId = await resolveLinkId(batchEvent.marketingCredential);
+      row.campaignLinkId = claims?.linkId ?? null;
+      row.optimizerId = claims?.ownerUserId ?? null;
+      row.aidSnapshot = claims?.aid ?? null;
+      row.adId = claims?.adId ?? null;
+      row.adIdSource = claims?.adIdSource ?? null;
+      row.adIdMissingReason = claims?.adIdMissingReason ?? null;
+      row.campaignId = claims?.campaignId ?? null;
+      row.adsetId = claims?.adsetId ?? null;
+      row.attributionPaid = claims?.paid ?? null;
+      row.linkResolution = claims?.linkResolution ?? null;
+      row.attributionConflict = claims?.attributionConflict ?? null;
+      row.conflictDetail = claims?.conflictDetail ?? null;
       rows.push(row);
     }
     if (rows.length === 0) return { accepted: 0 };
 
     await this.resolveProductIds(rows);
+
+    // A refreshed or re-opened success page must not add a second PURCHASE
+    // row for the same order. The database unique index is the durable fix
+    // (pending its data-cleanup approval); this check already makes the
+    // common repeat-visit path idempotent.
+    const purchaseOrderIds = [
+      ...new Set(
+        rows
+          .filter((row) => row.eventName === 'PURCHASE' && typeof row.entityId === 'string')
+          .map((row) => row.entityId as string),
+      ),
+    ];
+    if (purchaseOrderIds.length > 0) {
+      const existing = await this.prisma.analyticsEvent.findMany({
+        where: { eventName: 'PURCHASE', entityId: { in: purchaseOrderIds } },
+        select: { entityId: true },
+      });
+      const alreadyRecorded = new Set(existing.map((row) => row.entityId));
+      for (let index = rows.length - 1; index >= 0; index -= 1) {
+        const row = rows[index];
+        if (
+          row?.eventName === 'PURCHASE' &&
+          typeof row.entityId === 'string' &&
+          alreadyRecorded.has(row.entityId)
+        ) {
+          rows.splice(index, 1);
+        }
+      }
+    }
+    if (rows.length === 0) return { accepted: 0 };
 
     try {
       // `skipDuplicates` becomes ON CONFLICT DO NOTHING, which is what makes
@@ -159,7 +202,9 @@ export class AnalyticsService {
       sectionType: event.sectionType ?? null,
       destination: event.destination ?? null,
       productId: event.productId ?? null,
-      campaignId: event.campaignId ?? null,
+      // Attribution columns are filled from verified claims in ingest(); a
+      // campaign id in the public body is never trusted.
+      campaignId: null,
       metadata: event.eventName.startsWith('CHECKOUT_SUBMIT_')
         ? (checkoutMetadata(event.eventName, event.metadata) as Prisma.InputJsonValue | null) ?? Prisma.DbNull
         : this.boundedMetadata(event.metadata),

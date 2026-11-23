@@ -84,7 +84,7 @@ export class MarketingFunnelService {
           }>
         >(Prisma.sql`
       SELECT p.id::text AS "productId",p.name AS "productName",p.product_code AS "productCode",
-        (SELECT i.url FROM product_images i WHERE i.product_id=p.id AND i.option_value_id IS NULL AND i.variant_id IS NULL ORDER BY i.sort_order,i.id LIMIT 1) AS "thumbnailUrl"
+        (SELECT i.url FROM product_images i WHERE i.product_id=p.id AND i.option_value_id IS NULL AND i.variant_id IS NULL AND i.type='IMAGE' ORDER BY i.sort_order,i.id LIMIT 1) AS "thumbnailUrl"
       FROM products p WHERE p.id IN (${Prisma.join(ids.map((id) => Prisma.sql`${id}::uuid`))})
         ${q.q ? Prisma.sql`AND (p.name ILIKE ${'%' + q.q + '%'} OR p.product_code ILIKE ${'%' + q.q + '%'} OR EXISTS(SELECT 1 FROM skus k WHERE k.product_id=p.id AND k.sku_code ILIKE ${'%' + q.q + '%'}))` : Prisma.empty}`)
       : [];

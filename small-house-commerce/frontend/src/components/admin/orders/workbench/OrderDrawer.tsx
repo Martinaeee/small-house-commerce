@@ -11,6 +11,8 @@ import {
   type AdminVerificationState,
 } from "@/lib/admin-api";
 import { useAdminI18n, type TKey } from "@/lib/admin-i18n";
+import { paymentMethodLabel } from "./columns";
+import { OrderProcessTimes } from "./OrderProcessTimes";
 import { CustomerHistoryBlock } from "../HistoryPanels";
 import {
   fullDateTime,
@@ -118,7 +120,35 @@ export function OrderDrawer({
   // Bumped after a carrier event is recorded so the timeline refetches.
   const [fulfillmentVersion, setFulfillmentVersion] = useState(0);
   const [logisticsShipment, setLogisticsShipment] = useState<AdminShipment | null>(null);
+  // The operator's on-demand SUNRATE query: one at a time, with its answer
+  // kept beside the button so a rejection is never silent.
+  const [paymentQuery, setPaymentQuery] = useState<{
+    busy: boolean;
+    message: string | null;
+    ok: boolean;
+  }>({ busy: false, message: null, ok: false });
   const [returnOpen, setReturnOpen] = useState(false);
+
+  // A pending online payment is only late compared with the clock, so the
+  // comparison happens in an effect rather than during render.
+  const [onlinePendingOver30Minutes, setOnlinePendingOver30Minutes] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      await Promise.resolve();
+      if (!alive) return;
+      setOnlinePendingOver30Minutes(
+        Boolean(
+          row &&
+            row.paymentStatus === "ONLINE_PENDING" &&
+            Date.now() - new Date(row.createdAt).getTime() > 30 * 60 * 1000,
+        ),
+      );
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [row]);
 
   const orderId = row?.id ?? null;
   const phone = row?.customer?.normalizedPhone ?? null;
@@ -141,7 +171,9 @@ export function OrderDrawer({
   }, [orderId]);
 
   useEffect(() => {
-    if (!orderId || tab !== "goods") return;
+    // The overview also needs the detail: it shows the gateway attempts of
+    // an online payment, and the goods tab the fulfillment facts.
+    if (!orderId || (tab !== "goods" && tab !== "overview")) return;
     let active = true;
     Promise.all([adminApi.handoverSummary(orderId), adminApi.getOrder(orderId)])
       .then(([summary, detail]) => {
@@ -199,6 +231,7 @@ export function OrderDrawer({
     ? (staff.find((person) => person.id === row.verification?.assigneeId)?.name ?? null)
     : (row.assignedTo?.name ?? null);
   const first = row.items[0];
+  const attribution = row.attributionDetail;
 
   const nextStep = (() => {
     if (displayStatus === "CANCELLED" || displayStatus === "DENIED") {
@@ -213,8 +246,31 @@ export function OrderDrawer({
     return t("orders_next_verify");
   })();
 
-  const tabs: { key: DrawerTab; label: string }[] = [
-    { key: "overview", label: t("orders_drawer_overview") },
+  async function queryPayment(): Promise<void> {
+    setPaymentQuery({ busy: true, message: null, ok: false });
+    try {
+      const result = await adminApi.queryOrderPayment(row.orderNumber);
+      setPaymentQuery({
+        busy: false,
+        ok: true,
+        message: `${result.paymentStatus} · ${result.attemptStatus}`,
+      });
+      onChanged?.();
+    } catch (error) {
+      setPaymentQuery({
+        busy: false,
+        ok: false,
+        message:
+          (error as { message?: string }).message ??
+          t("orders_payment_query_failed"),
+      });
+    }
+  }
+
+  const attempts = fulfillmentForOrder?.detail.sunrateAttempts ?? [];
+  const paymentMethod = row ? paymentMethodLabel(row) : "";
+
+  const tabs: { key: DrawerTab; label: string }[] = [    { key: "overview", label: t("orders_drawer_overview") },
     { key: "verify", label: t("orders_drawer_verify") },
     { key: "customer", label: t("orders_drawer_customer") },
     { key: "goods", label: t("orders_drawer_goods") },
@@ -245,6 +301,7 @@ export function OrderDrawer({
               {t("orders_created")}: {fullDateTime(row.createdAt)}（
               {waitingAge(row.createdAt)}） · {row.paymentMethod ?? row.paymentStatus}
             </p>
+            <OrderProcessTimes order={row} />
           </div>
           <button
             type="button"
@@ -342,8 +399,41 @@ export function OrderDrawer({
                     <dd className="text-ink">{row.customerClassification ?? "—"}</dd>
                     <dt className="text-[12.5px] text-ink-muted">{t("orders_col_adid")}</dt>
                     <dd className="min-w-0 break-all font-mono text-[12px] text-ink">{row.adid ?? "—"}</dd>
+                    <dt className="text-[12.5px] text-ink-muted">{t("orders_col_optimizer")}</dt>
+                    <dd className="text-ink">{row.optimizerNameSnapshot ?? "—"} · <span className="font-mono text-[12px]">{row.optimizerAidSnapshot ?? "—"}</span></dd>
+                    <dt className="text-[12.5px] text-ink-muted">{t("orders_filter_campaign_id")}</dt>
+                    <dd className="min-w-0 break-all font-mono text-[12px] text-ink">{row.campaignId ?? "—"}</dd>
+                    {attribution ? <>
+                      <dt className="text-[12.5px] text-ink-muted">{t("orders_attribution_adset")}</dt>
+                      <dd className="min-w-0 break-all font-mono text-[12px] text-ink">{attribution.adsetId ?? "—"}</dd>
+                      <dt className="text-[12.5px] text-ink-muted">{t("orders_attribution_fbclid")}</dt>
+                      <dd className="min-w-0 break-all font-mono text-[12px] text-ink">{attribution.fbclid ?? "—"}</dd>
+                      <dt className="text-[12.5px] text-ink-muted">{t("orders_attribution_model")}</dt>
+                      <dd className="text-ink">{attribution.attributionModel ?? "—"}</dd>
+                    </> : null}
                   </dl>
                 </section>
+
+                {attribution ? <section className="rounded-xl border border-border p-3">
+                  <SectionTitle>{t("orders_attribution")}</SectionTitle>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {([
+                      ["orders_attribution_first", attribution.firstTouch],
+                      ["orders_attribution_last_paid", attribution.lastPaidTouch],
+                    ] as const).map(([labelKey, touch]) => (
+                      <div key={labelKey} className="rounded-lg bg-background p-2 text-[12px]">
+                        <div className="font-semibold text-ink">{t(labelKey)}</div>
+                        {touch ? <>
+                          <div className="mt-1 text-ink-secondary">{fullDateTime(touch.touchedAt)}</div>
+                          <div className="text-ink-secondary">{touch.productName ?? "—"}</div>
+                          <div className="break-all font-mono text-[11px] text-ink-muted">{touch.adId ?? "—"} · {touch.campaignId ?? "—"}</div>
+                          <div className="text-[11px] text-ink-muted">{touch.aid ?? "—"} · {touch.sourceType} · {touch.paid ? t("orders_attribution_paid") : "—"}</div>
+                        </> : <div className="mt-1 text-ink-muted">{t("orders_attribution_none")}</div>}
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mt-2 text-[11px] text-ink-muted">{t("orders_attribution_captured")}: {attribution.attributionCapturedAt ? fullDateTime(attribution.attributionCapturedAt) : "—"}</div>
+                </section> : null}
 
                 <section className="rounded-xl border border-border p-3">
                   <SectionTitle>{t("orders_drawer_goods")}</SectionTitle>
@@ -422,6 +512,97 @@ export function OrderDrawer({
                   ) : null}
                 </section>
               ) : null}
+              {/* Payment: how the order is paid and, for an online order, the
+                  gateway trail. The card number never exists here — only the
+                  masked brand and last four the gateway returned. */}
+              <section className="rounded-lg border border-border p-3">
+                <SectionTitle>{t("orders_col_payment")}</SectionTitle>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-semibold text-ink">{paymentMethod}</span>
+                  <Badge value={row.paymentStatus} className="text-[11.5px]" />
+                </div>
+                {onlinePendingOver30Minutes ? (
+                  <p
+                    data-testid="payment-awaiting-badge"
+                    className="mt-1.5 text-[11.5px] font-semibold text-admin-error"
+                  >
+                    {t("orders_payment_awaiting_30m")}
+                  </p>
+                ) : null}
+                {attempts.length > 0 ? (
+                  <ul className="mt-2 space-y-2" data-testid="payment-attempts">
+                    {attempts.map((attempt, index) => (
+                      <li
+                        key={attempt.id}
+                        className={
+                          index === 0
+                            ? "rounded-lg border border-border p-2"
+                            : "rounded-lg border border-border/60 p-2 text-ink-secondary"
+                        }
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-1">
+                          <span className="font-medium text-ink">
+                            {attempt.channel.toUpperCase()} · {attempt.status}
+                          </span>
+                          <span className="text-[11px] text-ink-muted">
+                            {fullDateTime(attempt.createdAt)}
+                          </span>
+                        </div>
+                        <div className="mt-1 font-mono text-[11px] text-ink-secondary">
+                          {attempt.merchantOrderNum}
+                        </div>
+                        {attempt.transId ? (
+                          <div className="mt-0.5 text-[11px] text-ink-secondary">
+                            {t("orders_payment_trans_id")}: {attempt.transId}
+                          </div>
+                        ) : null}
+                        {attempt.cardBrand || attempt.cardLast4 ? (
+                          <div className="mt-0.5 text-[11px] text-ink-secondary">
+                            {[attempt.cardBrand, attempt.cardLast4 ? `···· ${attempt.cardLast4}` : null]
+                              .filter(Boolean)
+                              .join(" ")}
+                          </div>
+                        ) : null}
+                        {attempt.lastQueryAt ? (
+                          <div className="mt-0.5 text-[11px] text-ink-muted">
+                            {t("orders_payment_last_query")}: {fullDateTime(attempt.lastQueryAt)}
+                          </div>
+                        ) : null}
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+                {row.paymentStatus === "ONLINE_PENDING" ||
+                row.paymentStatus === "PAID" ||
+                row.paymentStatus === "FAILED" ? (
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      data-testid="payment-query"
+                      disabled={paymentQuery.busy}
+                      onClick={() => void queryPayment()}
+                      className="rounded-lg border border-border px-2.5 py-1.5 text-[12px] font-semibold text-cta hover:bg-primary-light/40 disabled:cursor-not-allowed disabled:text-ink-muted"
+                    >
+                      {paymentQuery.busy
+                        ? t("orders_payment_querying")
+                        : t("orders_payment_query")}
+                    </button>
+                    {paymentQuery.message ? (
+                      <span
+                        role="status"
+                        data-testid="payment-query-result"
+                        className={
+                          paymentQuery.ok
+                            ? "text-[11.5px] text-admin-success"
+                            : "text-[11.5px] text-admin-error"
+                        }
+                      >
+                        {paymentQuery.message}
+                      </span>
+                    ) : null}
+                  </div>
+                ) : null}
+              </section>
             </div>
           ) : null}
 

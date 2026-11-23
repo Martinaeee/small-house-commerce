@@ -50,6 +50,8 @@ interface NavItem {
    * there would mark it active on every admin route.
    */
   exact?: boolean;
+  /** Nested entries revealed by the disclosure toggle; collapsed by default. */
+  children?: NavItem[];
 }
 
 /**
@@ -151,9 +153,26 @@ const NAV_ITEMS: NavEntry[] = [
       },
       {
         kind: "item",
+        href: "/admin/settings/payments",
+        labelKey: "nav_payments",
+        permission: "SYSTEM_SETTINGS_EDIT",
+      },
+      {
+        kind: "item",
         href: "/admin/status",
         labelKey: "nav_system_status",
         permission: "SYSTEM_SETTINGS_EDIT",
+        // `/admin/status/access` lives under this row; a prefix match here
+        // would light up both rows at once.
+        exact: true,
+        children: [
+          {
+            kind: "item",
+            href: "/admin/status/access",
+            labelKey: "nav_access_diagnostics",
+            permission: "SYSTEM_SETTINGS_EDIT",
+          },
+        ],
       },
     ],
   },
@@ -179,9 +198,16 @@ const NAV_ITEMS: NavEntry[] = [
 ];
 
 /** Permission-filtered render model: flat items plus titled groups. */
+interface NavRenderItem {
+  href: string;
+  label: string;
+  exact?: boolean;
+  children?: NavRenderItem[];
+}
+
 type NavRenderEntry =
-  | { kind: "item"; href: string; label: string; exact?: boolean }
-  | { kind: "group"; label: string; items: { href: string; label: string; exact?: boolean }[] };
+  | ({ kind: "item" } & NavRenderItem)
+  | { kind: "group"; label: string; items: NavRenderItem[] };
 
 const SEARCH_PERMISSIONS = [
   "PRODUCT_MANAGE",
@@ -242,7 +268,12 @@ function NavList({
         {entries.map((entry) =>
           entry.kind === "item" ? (
             <li key={entry.href}>
-              <NavLink item={entry} pathname={pathname} onNavigate={onNavigate} compact={compact} />
+              <NavItemWithChildren
+                item={entry}
+                pathname={pathname}
+                onNavigate={onNavigate}
+                compact={compact}
+              />
             </li>
           ) : (
             <li key={entry.label}>
@@ -252,7 +283,7 @@ function NavList({
               <ul className="flex flex-col gap-1">
                 {entry.items.map((item) => (
                   <li key={item.href}>
-                    <NavLink
+                    <NavItemWithChildren
                       item={item}
                       pathname={pathname}
                       onNavigate={onNavigate}
@@ -266,6 +297,76 @@ function NavList({
         )}
       </ul>
     </nav>
+  );
+}
+
+function NavItemWithChildren({
+  item,
+  pathname,
+  onNavigate,
+  compact = false,
+}: {
+  item: NavRenderItem;
+  pathname: string;
+  onNavigate?: () => void;
+  compact?: boolean;
+}) {
+  const childActive =
+    item.children?.some(
+      (child) => pathname === child.href || pathname.startsWith(`${child.href}/`),
+    ) ?? false;
+  const [open, setOpen] = useState(false);
+
+  // Entering a child route keeps the parent open so the active child stays
+  // visible; the user can still collapse it by hand afterwards.
+  useEffect(() => {
+    if (childActive) setOpen(true);
+  }, [childActive]);
+
+  if (!item.children?.length) {
+    return (
+      <NavLink item={item} pathname={pathname} onNavigate={onNavigate} compact={compact} />
+    );
+  }
+
+  return (
+    <div>
+      <div className="flex items-center gap-0.5">
+        <div className="min-w-0 flex-1">
+          <NavLink item={item} pathname={pathname} onNavigate={onNavigate} compact={compact} />
+        </div>
+        <button
+          type="button"
+          onClick={() => setOpen((value) => !value)}
+          aria-expanded={open}
+          aria-label={item.label}
+          className="mr-1 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-admin-rail-muted transition-colors hover:bg-white/10 hover:text-white"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            aria-hidden
+            className={`h-4 w-4 transition-transform ${open ? "rotate-90" : ""}`}
+          >
+            <path d="M9 6l6 6-6 6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
+      </div>
+      {open ? (
+        <ul className="mt-1 flex flex-col gap-1 pl-3">
+          {item.children.map((child) => (
+            <li key={child.href}>
+              <NavLink
+                item={child}
+                pathname={pathname}
+                onNavigate={onNavigate}
+                compact={compact}
+              />
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
   );
 }
 
@@ -404,16 +505,29 @@ export function AdminShell({ children }: { children: ReactNode }) {
   for (const entry of NAV_ITEMS) {
     if (!hasNavPermission(hasPermission, entry.permission)) continue;
     if (entry.kind === "item") {
+      const children = (entry.children ?? [])
+        .filter((child) => hasNavPermission(hasPermission, child.permission))
+        .map((child) => ({ href: child.href, label: t(child.labelKey) }));
       navEntries.push({
         kind: "item",
         href: entry.href,
         label: t(entry.labelKey),
+        children: children.length > 0 ? children : undefined,
       });
       continue;
     }
     const items = entry.items
       .filter((item) => hasNavPermission(hasPermission, item.permission))
-      .map((item) => ({ href: item.href, label: t(item.labelKey) }));
+      .map((item) => {
+        const children = (item.children ?? [])
+          .filter((child) => hasNavPermission(hasPermission, child.permission))
+          .map((child) => ({ href: child.href, label: t(child.labelKey) }));
+        return {
+          href: item.href,
+          label: t(item.labelKey),
+          children: children.length > 0 ? children : undefined,
+        };
+      });
     if (items.length > 0) {
       navEntries.push({ kind: "group", label: t(entry.labelKey), items });
     }

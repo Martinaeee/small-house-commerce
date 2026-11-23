@@ -268,7 +268,7 @@ const STOREFRONT_PDP_SELECT = {
   features: true,
   highlightsVisible: true,
   detailBlocks: {
-    select: { id: true, type: true, url: true, altText: true, sortOrder: true, optionValueId: true, variantId: true },
+    select: { id: true, type: true, url: true, altText: true, sortOrder: true, optionValueId: true, variantId: true, groupKey: true },
     orderBy: [{ sortOrder: 'asc' as const }, { id: 'asc' as const }],
   },
   faq: {
@@ -1426,7 +1426,6 @@ export class ProductsService {
     }
     for (const product of items) {
       const productScopedMedia = mediaByProduct.get(product.id) ?? [];
-      const sharedCover = product.images[0] ?? null;
       const sharedThumbnail =
         product.images.find((item) => item.type === 'IMAGE') ?? null;
       const defaultVariant = mediaVariantByProductId.get(product.id);
@@ -1442,13 +1441,16 @@ export class ProductsService {
         ? productScopedMedia.find(
             (item) =>
               item.variantId === defaultVariant.id &&
-              item.optionValueId === null,
+              item.optionValueId === null &&
+              item.type === 'IMAGE',
           )
         : undefined;
       const optionCover = driverValueId
         ? productScopedMedia.find(
             (item) =>
-              item.optionValueId === driverValueId && item.variantId === null,
+              item.optionValueId === driverValueId &&
+              item.variantId === null &&
+              item.type === 'IMAGE',
           )
         : undefined;
       const thumbnails = new Map<string, ProductMediaItem>();
@@ -1476,7 +1478,9 @@ export class ProductsService {
         }
       }
 
-      const cover = variantCover ?? optionCover ?? sharedCover;
+      // Covers feed <img> surfaces (cards, cart, checkout, search), so a
+      // video never wins here even when it opens the gallery.
+      const cover = variantCover ?? optionCover ?? sharedThumbnail;
       result.set(product.id, {
         effectiveCoverMedia: cover ? publicStorefrontMedia(cover) : null,
         thumbnails,
@@ -1684,11 +1688,15 @@ export class ProductsService {
       base.catalogGraphVersion,
       requestedScope ?? defaultScope,
     );
+    const coverImage =
+      media.initialMediaSet.media.find((item) => item.type === 'IMAGE') ??
+      base.images.find((item) => item.type === 'IMAGE') ??
+      null;
     const reviewData = await this.reviews.storefrontForProduct(base.id);
     return {
       ...base,
       ...media,
-      effectiveCoverMedia: media.initialMediaSet.media[0] ?? null,
+      effectiveCoverMedia: coverImage,
       effectiveFaq,
       ...reviewData,
     };

@@ -72,6 +72,14 @@ export const envSchema = z.object({
   JWT_ACCESS_TTL: z.string().min(1).default('1h'),
   JWT_REFRESH_TTL: z.string().min(1).default('7d'),
 
+  // First-party attribution touch lifetime. 7 days keeps the previous default.
+  MARKETING_TOUCH_TTL_DAYS: z.coerce.number().int().min(1).max(365).default(7),
+  /**
+   * Comma-separated order numbers that must never receive a success-page
+   * receipt (operator QA orders). Empty by default.
+   */
+  ORDER_RECEIPT_DENY_NUMBERS: z.preprocess(blankAsUndefined, z.string().max(2000).optional()),
+
   // Optional signed homepage draft-preview tokens. Empty/unset disables preview;
   // an enabled HMAC secret must resist offline guessing if a token is observed.
   HOMEPAGE_PREVIEW_SECRET: z.preprocess(
@@ -166,6 +174,33 @@ export const envSchema = z.object({
     z.string().uuid('QIANYI_LOCAL_WAREHOUSE_ID must be a uuid').optional(),
   ),
   QIANYI_LOGISTICS: z.preprocess(blankAsUndefined, z.string().min(1).max(100).optional()),
+  // Whether Qianyi's prepaid payment enum for online (SUNRATE) orders has
+  // been confirmed with Qianyi. Off until it has.
+  QIANYI_PREPAID_VERIFIED: z.preprocess(
+    blankAsUndefined,
+    z.enum(['true', 'false', '1']).optional(),
+  ),
+  // SUNRATE acquiring integration (design 2026-11-20). The base URL is only
+  // ever one of the two official hosts; sunrate.config.ts binds it to the env.
+  SUNRATE_ENABLED: z.preprocess(blankAsUndefined, z.enum(['true', 'false', '1']).optional()),
+  SUNRATE_ENV: z.preprocess(blankAsUndefined, z.enum(['test', 'production']).optional()),
+  SUNRATE_BASE_URL: z
+    .preprocess(
+      blankAsUndefined,
+      z
+        .string()
+        .url()
+        .refine(
+          (value) =>
+            value === 'https://test-api.xunhuiacq.com' || value === 'https://api.acq.sunrate.com',
+          { message: 'SUNRATE_BASE_URL must be an official SUNRATE API host' },
+        )
+        .optional(),
+    ),
+  SUNRATE_MERCHANT_ID: z.preprocess(blankAsUndefined, z.string().min(4).max(64).optional()),
+  SUNRATE_SIGN_KEY: z.preprocess(blankAsUndefined, z.string().min(16).max(128).optional()),
+  // Public site origin for gateway frontURL / backURL construction.
+  PAYMENTS_PUBLIC_BASE_URL: z.preprocess(blankAsUndefined, z.string().url().optional()),
 }).superRefine((env, ctx) => {
   if (env.EMAIL_API_KEY && !env.EMAIL_FROM) {
     ctx.addIssue({
@@ -203,6 +238,23 @@ export const envSchema = z.object({
           code: 'custom',
           path: [key],
           message: `${key} is required when QIANYI_ENABLED is true`,
+        });
+      }
+    }
+  }
+  if (env.SUNRATE_ENABLED === 'true' || env.SUNRATE_ENABLED === '1') {
+    const required = [
+      'SUNRATE_ENV',
+      'SUNRATE_MERCHANT_ID',
+      'SUNRATE_SIGN_KEY',
+      'PAYMENTS_PUBLIC_BASE_URL',
+    ] as const;
+    for (const key of required) {
+      if (!env[key]) {
+        ctx.addIssue({
+          code: 'custom',
+          path: [key],
+          message: `${key} is required when SUNRATE_ENABLED is true`,
         });
       }
     }

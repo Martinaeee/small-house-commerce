@@ -9,8 +9,9 @@ const chevron = (open: boolean) => <span aria-hidden className="inline-block w-3
 
 /**
  * Product → source-type → link tree. Every level is a real <tr>, so metric
- * columns stay aligned with the flat table. Collapse state lives in this
- * component only; a reload re-expands everything.
+ * columns stay aligned with the flat table. New rows start folded: the
+ * operator opens a product, then the source group they want to inspect.
+ * Expand state lives in this component only; a reload folds everything again.
  */
 export function ReportTreeTable({ tree, sortBy, sortDirection, onSort }: {
   tree: MarketingReportTreeProduct[];
@@ -19,14 +20,14 @@ export function ReportTreeTable({ tree, sortBy, sortDirection, onSort }: {
   onSort: (column?: string, firstClickDesc?: boolean) => void;
 }) {
   const { t } = useAdminI18n();
-  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
-  const toggle = (key: string) => setCollapsed(current => {
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
+  const toggle = (key: string) => setExpanded(current => {
     const next = new Set(current);
     if (next.has(key)) next.delete(key);
     else next.add(key);
     return next;
   });
-  const open = (key: string) => !collapsed.has(key);
+  const open = (key: string) => expanded.has(key);
   if (tree.length === 0) return <p className="text-sm text-admin-muted">{t("marketing_report_empty")}</p>;
   return <div className="overflow-x-auto rounded-xl border border-admin-border bg-white"><table className="w-full text-left text-sm">
     <thead className="bg-slate-50 text-xs text-admin-muted"><tr>

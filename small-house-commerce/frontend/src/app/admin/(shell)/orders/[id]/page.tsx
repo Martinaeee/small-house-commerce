@@ -12,6 +12,7 @@ import {
   type FormEvent,
   type ReactNode,
 } from "react";
+import { OrderProcessTimes } from "@/components/admin/orders/workbench/OrderProcessTimes";
 import { Badge } from "@/components/admin/Badge";
 import { Dialog } from "@/components/admin/Dialog";
 import { EmptyState } from "@/components/admin/EmptyState";
@@ -1409,6 +1410,7 @@ function OrderDetailPage(): ReactNode {
 
         {/* Timeline */}
         <Card title={`Timeline (${timeline.length})`}>
+          {order.draftStartedAt ? <OrderProcessTimes order={order} /> : null}
           {timeline.length === 0 ? (
             <p className="text-sm text-ink-muted">No status history.</p>
           ) : (

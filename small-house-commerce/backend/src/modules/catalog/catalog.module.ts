@@ -20,6 +20,7 @@ import { MarketingGuard } from '../marketing/marketing.guard.js';
 import { CampaignLinksService } from '../marketing/campaign-links.service.js';
 import { CampaignLinksController } from '../marketing/admin/campaign-links.controller.js';
 import { MarketingReportService } from '../marketing/marketing-report.service.js';
+import { MarketingAttributionReportService } from '../marketing/marketing-attribution-report.service.js';
 import { MarketingReportController } from '../marketing/admin/marketing-report.controller.js';
 import { MarketingFunnelController } from '../marketing/admin/marketing-funnel.controller.js';
 import { MarketingFunnelService } from '../marketing/marketing-funnel.service.js';
@@ -91,6 +92,7 @@ import { BundlesService } from './bundles.service.js';
     CampaignLinksService,
     AdCostsService,
     MarketingReportService,
+    MarketingAttributionReportService,
     MarketingFunnelService,
     MarketingPerformanceService,
     MarketingTouchService,

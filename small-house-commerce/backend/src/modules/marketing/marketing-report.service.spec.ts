@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Prisma } from '../../generated/prisma/client.js';
 import { MarketingReportService } from './marketing-report.service.js';
+import { MarketingAttributionReportService } from './marketing-attribution-report.service.js';
 import { marketingReportQuerySchema } from './dto/marketing-report.dto.js';
 
 const OWNER = '11111111-1111-4111-a111-111111111111';
@@ -11,7 +12,7 @@ const query = { from: '2026-10-05', to: '2026-10-05', groupBy: 'LINK' as const, 
 const raw = { kind: 'REGISTERED', id: LINK, label: 'Ad A', ownerUserId: OWNER, ownerName: 'Optimizer', aid: 'OP-1', productId: null, productName: null, productCode: null, landingPageId: null, sourceType: 'META_AD', visits: 2n, pageTotalVisits: null, addToCarts: 3n, checkouts: 1n, submittedOrders: 2n, validOrders: 2n, confirmedOrders: 1n, signedOrders: 1n, validOrderValuePhp: new Prisma.Decimal('10000'), signedGrossPhp: new Prisma.Decimal('10000'), spendUsd: new Prisma.Decimal('50'), spendPhp: new Prisma.Decimal('2865'), expectedCostDays: 1n, recordedCostDays: 1n, duplicateOrders: 0n, riskOrders: 0n, afterSalesOrders: 0n, refundStatusOrders: 0n };
 function setup(rows = [raw]) {
   const prisma = { $queryRaw: vi.fn(async () => rows), campaignLink: { findMany: vi.fn(async () => [{ id: LINK }]) }, product: { findMany: vi.fn(async () => []) } };
-  return { service: new MarketingReportService(prisma as never), prisma };
+  return { service: new MarketingReportService(prisma as never, new MarketingAttributionReportService(prisma as never)), prisma };
 }
 beforeEach(() => { vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-10-13T01:00:00Z')); });
 afterEach(() => vi.useRealTimers());

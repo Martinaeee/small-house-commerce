@@ -10,8 +10,8 @@ const auth = vi.hoisted(() => ({ admin: { id: "u1", name: "Operator", permission
 vi.mock("@/components/admin/AdminAuthProvider", () => ({ useAdminAuth: () => auth }));
 vi.mock("@/lib/clipboard", () => ({ copyText: vi.fn() }));
 vi.mock("@/lib/marketing-api", async (load) => ({ ...await load(), marketingApi: { listProductGroups: vi.fn(async () => ({ items: [{ product: { id: "p1", name: "Chair", productCode: "CHAIR-1", thumbnailUrl: null }, recordCount: 3, postCount: 2, lastPostDate: "2026-11-03", latestCreatedAt: "2026-11-03T01:00:00Z" }], total: 1, page: 1, pageSize: 20 })), archiveLink: vi.fn(), unarchiveLink: vi.fn(), createShortLink: vi.fn(async () => ({ path: "/s/abc", code: "abc", target: "/products/chair" })), listLinks: vi.fn(), linkContext: vi.fn(), createLink: vi.fn(), updateLink: vi.fn(), disableLink: vi.fn(), cloneLink: vi.fn(), ownerOptions: vi.fn(async () => []) } }));
-const row: CampaignLinkRow = { postDate: null, postUrl: null, archivedAt: null, updatedAt: "2026-10-09T01:00:00Z", id: "link-1", code: "random-code", adid: "FB-OP-1-261103-01", productId: "p1", productName: "Chair", productCode: "CHAIR-1", landingPageId: "page-1",
-productThumbnailUrl: null, pageName: "My launch", variantId: null, variantNameSnapshot: null, name: "Ad A", sourceType: "META_AD", ownerUserId: "u1", ownerName: "Optimizer", aid: "OP-1", status: "ACTIVE", version: 2, path: "/lp/chair-ad?cl=random-code", createdAt: "2026-10-09T01:00:00Z" };
+const row: CampaignLinkRow = { postDate: null, postUrl: null, archivedAt: null, updatedAt: "2026-10-09T01:00:00Z", id: "link-1", code: "random-code", cl: "random-code", cleanPath: "/lp/chair-ad", adid: "FB-OP-1-261103-01", productId: "p1", productName: "Chair", productCode: "CHAIR-1", landingPageId: "page-1",
+productThumbnailUrl: null, pageName: "My launch", variantId: null, variantNameSnapshot: null, name: "Ad A", sourceType: "META_AD", attributionMode: "CL", metaUrlParameters: "cl=random-code&aid=OP-1&adid={{ad.id}}", ownerUserId: "u1", ownerName: "Optimizer", aid: "OP-1", status: "ACTIVE", version: 2, path: "/lp/chair-ad?cl=random-code", createdAt: "2026-10-09T01:00:00Z" };
 const context: MarketingLinkContext = { products: [{ id: "p1", name: "Chair", productCode: "CHAIR-1", slug: "chair", thumbnailUrl: "/uploads/chair.jpg", variants: [{ id: "v1", name: "Red" }], landingPages: [{ id: "page-1", title: "My launch", slug: "chair-ad", ownerUserId: "u1", ownerName: "Optimizer", aid: "OP-1", effectiveStatus: "SCHEDULED" }] }] };
 const mount = (props = {}) => render(<AdminI18nProvider><CampaignLinksList {...props} /></AdminI18nProvider>);
 beforeEach(() => {
@@ -159,11 +159,11 @@ describe("persisted campaign links", () => {
     expect(within(dialog).queryByRole("textbox", { name: /AID/ })).not.toBeInTheDocument();
     expect(within(dialog).getByText(/开始时间前不可访问/)).toBeInTheDocument();
     fireEvent.change(within(dialog).getByLabelText("内部名称"), { target: { value: "Launch ad" } });
-    fireEvent.change(within(dialog).getByLabelText("Ad ID"), { target: { value: "ad-123" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "保存并生成链接" }));
     await waitFor(() => expect(marketingApi.createLink).toHaveBeenCalledOnce());
     const input = vi.mocked(marketingApi.createLink).mock.calls[0][0];
-    expect(input).toMatchObject({ productId: "p1", landingPageId: "page-1", name: "Launch ad", adId: "ad-123" });
+    expect(input).toMatchObject({ productId: "p1", landingPageId: "page-1", name: "Launch ad", attributionMode: "CL" });
+    expect(input).not.toHaveProperty("adId");
     expect(input).not.toHaveProperty("ownerUserId"); expect(input).not.toHaveProperty("aid");
   });
 
@@ -195,23 +195,39 @@ describe("persisted campaign links", () => {
 
   it("confirms a successful copy in a dialog with the full URL", async () => {
     mount(); await screen.findByText("Ad A"); fireEvent.click(screen.getByRole("button", { name: "复制网址" }));
-    await waitFor(() => expect(copyText).toHaveBeenCalledWith(new URL(row.path, window.location.origin).href));
+    await waitFor(() => expect(copyText).toHaveBeenCalledWith(new URL(row.cleanPath!, window.location.origin).href));
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByText("复制成功")).toBeInTheDocument();
     expect(within(dialog).getByText("已复制")).toBeInTheDocument();
-    expect(within(dialog).getByLabelText("投放网址")).toHaveValue(new URL(row.path, window.location.origin).href);
+    expect(within(dialog).getByLabelText("投放网址")).toHaveValue(new URL(row.cleanPath!, window.location.origin).href);
   });
 
-  it("prefills a new-link copy and sends the edited ad parameters without changing ownership", async () => {
+  it("shows CL/AID/Meta copy buttons for META_AD and keeps FB_POST on its old path", async () => {
+    const view = mount(); await screen.findByText("Ad A");
+    expect(screen.getByRole("button", { name: "复制 CL" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "复制 AID" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "复制 Meta 参数" })).toBeInTheDocument();
+    view.unmount();
+    vi.mocked(marketingApi.listLinks).mockResolvedValue({ items: [{ ...row, id: "f1", sourceType: "FB_POST", cleanPath: null, metaUrlParameters: null, postDate: "2026-11-03" }], total: 1, page: 1, pageSize: 20 });
+    mount(); await screen.findByText("Ad A");
+    fireEvent.click(screen.getByRole("button", { name: "复制网址" }));
+    await waitFor(() => expect(copyText).toHaveBeenCalledWith(new URL(row.path, window.location.origin).href));
+    expect(screen.queryByRole("button", { name: "复制 CL" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "复制 Meta 参数" })).not.toBeInTheDocument();
+  });
+
+
+  it("prefills a new-link copy and omits manual ad parameters for Meta ads", async () => {
     mount(); await screen.findByText("Ad A"); fireEvent.click(screen.getByRole("button", { name: "复制记录" }));
     const dialog = await screen.findByRole("dialog");
     await waitFor(() => expect(within(dialog).getByTestId("link-builder-product-current")).toHaveTextContent("Chair"));
     expect(within(dialog).getByLabelText("内部名称")).toHaveValue("Ad A copy");
     expect(within(dialog).getByText(/OP-1/)).toBeInTheDocument();
-    fireEvent.change(within(dialog).getByLabelText("Ad ID"), { target: { value: "another-ad" } });
+    expect(within(dialog).queryByLabelText("Ad ID")).not.toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole("button", { name: "保存并生成链接" }));
-    await waitFor(() => expect(marketingApi.cloneLink).toHaveBeenCalledWith("link-1", expect.objectContaining({ productId: "p1", landingPageId: "page-1", adId: "another-ad", name: "Ad A copy" })));
+    await waitFor(() => expect(marketingApi.cloneLink).toHaveBeenCalledWith("link-1", expect.objectContaining({ productId: "p1", landingPageId: "page-1", attributionMode: "CL", name: "Ad A copy" })));
     expect(marketingApi.createLink).not.toHaveBeenCalled();
+    expect(vi.mocked(marketingApi.cloneLink).mock.calls[0][1]).not.toHaveProperty("adId");
     expect(vi.mocked(marketingApi.cloneLink).mock.calls[0][1]).not.toHaveProperty("ownerUserId");
   });
 
@@ -221,7 +237,7 @@ describe("persisted campaign links", () => {
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByText("复制失败")).toBeInTheDocument();
     expect(within(dialog).getByText("复制失败，请手动选择并复制")).toBeInTheDocument();
-    expect(within(dialog).getByLabelText("投放网址")).toHaveValue(new URL(row.path, window.location.origin).href);
+    expect(within(dialog).getByLabelText("投放网址")).toHaveValue(new URL(row.cleanPath!, window.location.origin).href);
   });
 
   it("shows the advertising number of a link and copies it", async () => {

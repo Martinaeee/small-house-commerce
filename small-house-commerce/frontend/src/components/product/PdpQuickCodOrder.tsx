@@ -10,6 +10,7 @@ import {
 } from "react";
 import { useRouter } from "next/navigation";
 import { type Product, type StorefrontProductVariant } from "@/lib/api";
+import { productCoverMedia } from "@/lib/product-cover";
 import {
   defaultPreferredDeliveryDate,
   manilaWallDate,
@@ -107,7 +108,7 @@ function variantRowMedia(
       };
     }
   }
-  const cover = product.effectiveCoverMedia;
+  const cover = productCoverMedia(product);
   return cover ? { url: cover.url, altText: cover.altText } : null;
 }
 

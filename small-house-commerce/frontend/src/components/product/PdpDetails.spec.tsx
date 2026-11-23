@@ -541,3 +541,65 @@ describe("variant-scoped detail media", () => {
     expect(document.querySelector('img[src="/shared.jpg"]')).toBeNull();
   });
 });
+
+describe("detail carousel groups", () => {
+  function productWithModules() {
+    const item = structuredClone(product);
+    item.detailBlocks = [
+      { id: "featured", type: "IMAGE" as const, url: "featured.jpg", altText: "Featured", sortOrder: 0 },
+      { id: "g1", type: "IMAGE" as const, url: "carousel-a.jpg", altText: "Carousel A", sortOrder: 1, groupKey: "launch" },
+      { id: "g2", type: "IMAGE" as const, url: "carousel-b.jpg", altText: "Carousel B", sortOrder: 2, groupKey: "launch" },
+      { id: "s1", type: "IMAGE" as const, url: "single-1.jpg", altText: "Single 1", sortOrder: 3 },
+      { id: "s2", type: "IMAGE" as const, url: "single-2.jpg", altText: "Single 2", sortOrder: 4 },
+      { id: "s3", type: "IMAGE" as const, url: "single-3.jpg", altText: "Single 3", sortOrder: 5 },
+      { id: "s4", type: "IMAGE" as const, url: "single-4.jpg", altText: "Single 4", sortOrder: 6 },
+      { id: "s5", type: "IMAGE" as const, url: "single-5.jpg", altText: "Single 5", sortOrder: 7 },
+    ];
+    return item;
+  }
+
+  it("renders a carousel group as one module and counts modules for the fold", async () => {
+    const user = userEvent.setup();
+    const item = productWithModules();
+    render(
+      <PdpPurchaseProvider product={item}>
+        <PdpDetails product={item} />
+      </PdpPurchaseProvider>,
+    );
+
+    // Modules: featured, carousel, single-1..5 → seven; the first four
+    // show, so the whole carousel shows while singles 3–5 stay folded.
+    expect(screen.getByTestId("detail-carousel")).toBeInTheDocument();
+    expect(screen.getByAltText("Carousel A")).toBeInTheDocument();
+    expect(screen.getByAltText("Carousel B")).toBeInTheDocument();
+    expect(screen.queryByAltText("Single 3")).not.toBeInTheDocument();
+    expect(screen.queryByAltText("Single 5")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "See more (3)" }));
+    expect(screen.getByAltText("Single 5")).toBeInTheDocument();
+  });
+
+  it("gives the carousel swipe dots and arrows on every breakpoint", () => {
+    const item = productWithModules();
+    render(
+      <PdpPurchaseProvider product={item}>
+        <PdpDetails product={item} />
+      </PdpPurchaseProvider>,
+    );
+
+    const dots = screen
+      .getAllByRole("button", { name: /Go to detail image \d/ })
+      .filter((dot) => dot.closest('[data-testid="detail-carousel"]'));
+    expect(dots).toHaveLength(2);
+    expect(dots[0]).toHaveAttribute("aria-current", "true");
+    expect(dots[1]).toHaveAttribute("aria-current", "false");
+
+    // Amazon-style side arrows stay on phones too, not just desktop.
+    for (const label of ["Previous detail image", "Next detail image"]) {
+      const arrow = screen.getByRole("button", { name: label });
+      expect(arrow).toBeVisible();
+      expect(arrow.className).toContain("flex");
+      expect(arrow.className).not.toContain("hidden");
+    }
+  });
+});

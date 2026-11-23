@@ -16,6 +16,7 @@ const ORDER_PERMISSION_CODES = new Set<string>([
   'ORDER_RISK_WRITE',
   'ORDER_MERGE',
   'ORDER_HANDOVER',
+  'ORDER_DELETE',
 ]);
 
 export async function reconcileOrderPermissions(prisma: PrismaClient) {

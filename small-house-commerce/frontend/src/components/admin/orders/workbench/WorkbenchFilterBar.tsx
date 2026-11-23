@@ -8,7 +8,8 @@ import {
   type ReactNode,
 } from "react";
 import { useAdminI18n, type TKey } from "@/lib/admin-i18n";
-import { WORKBENCH_COLUMNS, type WorkbenchColumnKey } from "./columns";
+import { type WorkbenchColumnKey } from "./columns";
+import { ColumnOrderList } from "./ColumnOrderList";
 import type { SavedView } from "./prefs";
 
 export interface WorkbenchFilterState {
@@ -20,6 +21,9 @@ export interface WorkbenchFilterState {
   region: string;
   phone: string;
   sku: string;
+  aid: string;
+  adId: string;
+  campaignId: string;
   owner: string;
   priority: string;
   classification: string;
@@ -36,9 +40,12 @@ export interface WorkbenchFilterBarProps {
   onChange: (patch: Partial<WorkbenchFilterState>) => void;
   onClear: () => void;
   assignees: { id: string; name: string | null }[];
+  optimizers: { id: string; aid: string; name: string | null }[];
   statusOptions: { value: string; label: string }[];
   hiddenColumns: WorkbenchColumnKey[];
+  columnOrder: WorkbenchColumnKey[];
   onToggleColumn: (key: WorkbenchColumnKey) => void;
+  onMoveColumn: (from: number, to: number) => void;
   onResetColumns: () => void;
   views: SavedView[];
   onApplyView: (view: SavedView) => void;
@@ -156,9 +163,12 @@ export function WorkbenchFilterBar({
   onChange,
   onClear,
   assignees,
+  optimizers,
   statusOptions,
   hiddenColumns,
+  columnOrder,
   onToggleColumn,
+  onMoveColumn,
   onResetColumns,
   views,
   onApplyView,
@@ -373,6 +383,49 @@ export function WorkbenchFilterBar({
               </select>
             </label>
             <label className="block text-[13px] text-ink-secondary">
+              {t("orders_filter_aid")}
+              {optimizers.length > 0 ? (
+                <select
+                  value={filters.aid}
+                  onChange={(event) => onChange({ aid: event.target.value })}
+                  className="mt-1 w-full rounded-lg border border-border bg-card px-2 py-1.5 text-[13px] text-ink"
+                >
+                  <option value="">{t("orders_filter_all_optimizers")}</option>
+                  {filters.aid && !optimizers.some((optimizer) => optimizer.aid === filters.aid) ? (
+                    <option value={filters.aid}>{filters.aid}</option>
+                  ) : null}
+                  {optimizers.map((optimizer) => (
+                    <option key={`${optimizer.id}-${optimizer.aid}`} value={optimizer.aid}>
+                      {optimizer.name ? `${optimizer.name} · ${optimizer.aid}` : optimizer.aid}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  value={filters.aid}
+                  onChange={(event) => onChange({ aid: event.target.value })}
+                  placeholder="OP-…"
+                  className="mt-1 w-full rounded-lg border border-border bg-card px-2 py-1.5 font-mono text-[13px] text-ink"
+                />
+              )}
+            </label>
+            <label className="block text-[13px] text-ink-secondary">
+              {t("orders_filter_ad_id")}
+              <input
+                value={filters.adId}
+                onChange={(event) => onChange({ adId: event.target.value })}
+                className="mt-1 w-full rounded-lg border border-border bg-card px-2 py-1.5 font-mono text-[13px] text-ink"
+              />
+            </label>
+            <label className="block text-[13px] text-ink-secondary">
+              {t("orders_filter_campaign_id")}
+              <input
+                value={filters.campaignId}
+                onChange={(event) => onChange({ campaignId: event.target.value })}
+                className="mt-1 w-full rounded-lg border border-border bg-card px-2 py-1.5 font-mono text-[13px] text-ink"
+              />
+            </label>
+            <label className="block text-[13px] text-ink-secondary">
               {t("orders_filter_priority")}
               <select
                 value={filters.priority}
@@ -488,24 +541,12 @@ export function WorkbenchFilterBar({
         <Popover label={t("orders_columns")} align="right" width="w-64">
           {() => (
             <div>
-              <div className="mb-2 text-[11px] font-bold uppercase tracking-[.06em] text-ink-muted">
-                {t("orders_columns")}
-              </div>
-              <div className="max-h-64 space-y-1 overflow-y-auto">
-                {WORKBENCH_COLUMNS.map((column) => (
-                  <label
-                    key={column.key}
-                    className="flex items-center gap-2 py-0.5 text-[13px] text-ink-secondary"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={!hiddenColumns.includes(column.key)}
-                      onChange={() => onToggleColumn(column.key)}
-                    />
-                    {t(column.labelKey)}
-                  </label>
-                ))}
-              </div>
+              <ColumnOrderList
+                order={columnOrder}
+                hidden={hiddenColumns}
+                onToggle={onToggleColumn}
+                onMove={onMoveColumn}
+              />
               <button
                 type="button"
                 onClick={onResetColumns}

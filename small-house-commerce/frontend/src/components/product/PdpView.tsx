@@ -4,7 +4,7 @@ import { PdpPurchaseProvider } from "./PdpPurchaseProvider";
 import { PdpDetails } from "./PdpDetails";
 import { pdpHasDetails } from "./pdp-details-visibility";
 import { PdpSectionNavGate } from "./PdpSectionNavGate";
-import { PdpQuickCodOrder } from "./PdpQuickCodOrder";
+import { PdpQuickCodOrderSlot } from "./PdpQuickCodOrderSlot";
 import { PdpRecommendations } from "./PdpRecommendations";
 import { PdpQuickRecommendations } from "./PdpQuickRecommendations";
 import { ProductFeedback } from "./ProductFeedback";
@@ -76,7 +76,7 @@ export async function PdpView({
 
           <section className="mt-6 flex flex-col gap-8">
             <PdpDetails product={product} />
-            <PdpQuickCodOrder />
+            <PdpQuickCodOrderSlot />
             <ProductFeedback
               product={product}
               supportEmail={settings.supportEmail}

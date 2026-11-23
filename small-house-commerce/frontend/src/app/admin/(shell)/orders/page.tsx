@@ -33,7 +33,10 @@ import {
   type Paged,
 } from "@/lib/admin-api";
 import {
+  DEFAULT_COLUMN_ORDER,
   DEFAULT_HIDDEN_COLUMNS,
+  moveColumnKey,
+  paymentMethodLabel,
   visibleColumns,
   type WorkbenchColumnKey,
 } from "@/components/admin/orders/workbench/columns";
@@ -45,6 +48,7 @@ import {
   writeViews,
   type SavedView,
 } from "@/components/admin/orders/workbench/prefs";
+import { BulkOrderActions } from "@/components/admin/orders/workbench/BulkOrderActions";
 import { OrderTable } from "@/components/admin/orders/workbench/OrderTable";
 import {
   WorkbenchFilterBar,
@@ -180,6 +184,9 @@ function OrdersPageContent() {
   const dateTo = searchParams.get("dateTo") ?? "";
   const phone = searchParams.get("phone") ?? "";
   const sku = searchParams.get("sku") ?? "";
+  const aid = searchParams.get("aid") ?? "";
+  const adId = searchParams.get("adId") ?? "";
+  const campaignId = searchParams.get("campaignId") ?? "";
   const priority = oneOf(searchParams.get("priority"), ["NORMAL", "HIGH", "URGENT"]);
   const verification = oneOf(searchParams.get("verification"), [
     "none",
@@ -202,6 +209,9 @@ function OrdersPageContent() {
     region,
     phone,
     sku,
+    aid,
+    adId,
+    campaignId,
     owner: assignedTo,
     priority,
     classification,
@@ -244,6 +254,7 @@ function OrdersPageContent() {
 
   // --- assignee options for the staff filter --------------------------------
   const [assignees, setAssignees] = useState<{ id: string; name: string | null }[]>([]);
+  const [orderOptimizers, setOrderOptimizers] = useState<{ id: string; aid: string; name: string | null }[]>([]);
   useEffect(() => {
     let active = true;
     adminApi
@@ -253,6 +264,14 @@ function OrdersPageContent() {
       })
       .catch(() => {
         // Non-fatal: the staff lists stay empty.
+      });
+    adminApi
+      .orderOptimizers()
+      .then((rows) => {
+        if (active) setOrderOptimizers(rows);
+      })
+      .catch(() => {
+        // Non-fatal: the AID filter stays a plain input.
       });
     return () => {
       active = false;
@@ -270,6 +289,8 @@ function OrdersPageContent() {
   const [data, setData] = useState<Paged<AdminOrderListRow> | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [nonce, setNonce] = useState(0);
+  // A selection belongs to this exact result page, never to a future query.
+  const [selection, setSelection] = useState<{ scope: string; ids: string[] }>({ scope: "", ids: [] });
 
   const queryKey = [
     statusKey,
@@ -286,6 +307,9 @@ function OrdersPageContent() {
     dateTo,
     phone,
     sku,
+    aid,
+    adId,
+    campaignId,
     priority,
     verification,
     followUp,
@@ -293,6 +317,7 @@ function OrdersPageContent() {
     String(page),
     String(nonce),
   ].join("|");
+  if (selection.scope !== queryKey) setSelection({ scope: queryKey, ids: [] });
   const [fetchedKey, setFetchedKey] = useState<string | null>(null);
   const loading = fetchedKey !== queryKey;
 
@@ -316,6 +341,9 @@ function OrdersPageContent() {
         dateTo: DATE_RE.test(dateTo) ? dateTo : undefined,
         phone: phone || undefined,
         sku: sku || undefined,
+        aid: aid || undefined,
+        adId: adId || undefined,
+        campaignId: campaignId || undefined,
         priority: priority || undefined,
         verification: verification || undefined,
         followUp: followUp || undefined,
@@ -402,6 +430,9 @@ function OrdersPageContent() {
         dateTo: DATE_RE.test(dateTo) ? dateTo : undefined,
         phone: phone || undefined,
         sku: sku || undefined,
+        aid: aid || undefined,
+        adId: adId || undefined,
+        campaignId: campaignId || undefined,
         priority: priority || undefined,
         verification: verification || undefined,
         followUp: followUp || undefined,
@@ -443,6 +474,9 @@ function OrdersPageContent() {
   const [hiddenColumns, setHiddenColumns] = useState<WorkbenchColumnKey[]>(
     () => readColumnPrefs().hidden,
   );
+  const [columnOrder, setColumnOrder] = useState<WorkbenchColumnKey[]>(
+    () => readColumnPrefs().order,
+  );
   const [colWidths, setColWidths] = useState<Record<string, number>>(
     () => readColumnPrefs().widths,
   );
@@ -450,8 +484,12 @@ function OrdersPageContent() {
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
 
   const persistColumns = useCallback(
-    (hidden: WorkbenchColumnKey[], widths: Record<string, number>) => {
-      writeColumnPrefs({ hidden, widths });
+    (
+      hidden: WorkbenchColumnKey[],
+      widths: Record<string, number>,
+      order: WorkbenchColumnKey[],
+    ) => {
+      writeColumnPrefs({ hidden, widths, order });
     },
     [],
   );
@@ -460,28 +498,41 @@ function OrdersPageContent() {
     (key: WorkbenchColumnKey) => {
       setHiddenColumns((prev) => {
         const next = prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key];
-        persistColumns(next, colWidths);
+        persistColumns(next, colWidths, columnOrder);
         return next;
       });
     },
-    [colWidths, persistColumns],
+    [colWidths, columnOrder, persistColumns],
+  );
+
+  const moveColumn = useCallback(
+    (from: number, to: number) => {
+      setColumnOrder((prev) => {
+        const next = moveColumnKey(prev, from, to);
+        if (next.length !== prev.length) return prev;
+        persistColumns(hiddenColumns, colWidths, next);
+        return next;
+      });
+    },
+    [colWidths, hiddenColumns, persistColumns],
   );
 
   const resetColumns = useCallback(() => {
     setHiddenColumns([...DEFAULT_HIDDEN_COLUMNS]);
+    setColumnOrder([...DEFAULT_COLUMN_ORDER]);
     setColWidths({});
-    persistColumns([...DEFAULT_HIDDEN_COLUMNS], {});
+    persistColumns([...DEFAULT_HIDDEN_COLUMNS], {}, [...DEFAULT_COLUMN_ORDER]);
   }, [persistColumns]);
 
   const changeWidth = useCallback(
     (key: WorkbenchColumnKey, width: number) => {
       setColWidths((prev) => {
         const next = { ...prev, [key]: width };
-        persistColumns(hiddenColumns, next);
+        persistColumns(hiddenColumns, next, columnOrder);
         return next;
       });
     },
-    [hiddenColumns, persistColumns],
+    [columnOrder, hiddenColumns, persistColumns],
   );
 
   const resetWidth = useCallback(
@@ -489,14 +540,17 @@ function OrdersPageContent() {
       setColWidths((prev) => {
         const next = { ...prev };
         delete next[key];
-        persistColumns(hiddenColumns, next);
+        persistColumns(hiddenColumns, next, columnOrder);
         return next;
       });
     },
-    [hiddenColumns, persistColumns],
+    [columnOrder, hiddenColumns, persistColumns],
   );
 
-  const columns = useMemo(() => visibleColumns(hiddenColumns), [hiddenColumns]);
+  const columns = useMemo(
+    () => visibleColumns(hiddenColumns, columnOrder),
+    [columnOrder, hiddenColumns],
+  );
 
   const toggleExpand = useCallback((orderId: string) => {
     setExpanded((prev) => {
@@ -523,19 +577,21 @@ function OrdersPageContent() {
         filters,
         hidden: hiddenColumns,
         widths: colWidths,
+        order: columnOrder,
       };
       const next = [...views.filter((entry) => entry.name !== name), view];
       setViews(next);
       writeViews(next);
     },
-    [searchParams, hiddenColumns, colWidths, views],
+    [searchParams, columnOrder, hiddenColumns, colWidths, views],
   );
 
   const applyView = useCallback(
     (view: SavedView) => {
       setHiddenColumns(view.hidden);
+      setColumnOrder(view.order);
       setColWidths(view.widths);
-      persistColumns(view.hidden, view.widths);
+      persistColumns(view.hidden, view.widths, view.order);
       const next = new URLSearchParams();
       for (const [key, value] of Object.entries(view.filters)) next.set(key, value);
       const qs = next.toString();
@@ -697,6 +753,11 @@ function OrdersPageContent() {
       t("orders_col_customer"),
       t("orders_col_phone"),
       t("orders_col_status"),
+      t("orders_col_payment"),
+      t("orders_col_optimizer"),
+      t("orders_filter_aid"),
+      t("orders_col_adid"),
+      t("orders_filter_campaign_id"),
       t("orders_col_product"),
       t("orders_col_sku"),
       t("orders_col_qty"),
@@ -712,6 +773,11 @@ function OrdersPageContent() {
         row.shippingAddress?.fullName ?? row.customer.name ?? "",
         row.customer.normalizedPhone,
         row.orderStatus,
+        paymentMethodLabel(row),
+        row.optimizerNameSnapshot ?? "",
+        row.optimizerAidSnapshot ?? "",
+        row.adid ?? "",
+        row.campaignId ?? "",
         row.items.map((item) => item.productNameSnapshot).join(" | "),
         row.items.map((item) => item.skuCodeSnapshot).join(" | "),
         String(row.items.reduce((sum, item) => sum + item.quantity, 0)),
@@ -751,6 +817,9 @@ function OrdersPageContent() {
     region,
     phone,
     sku,
+    aid,
+    adId,
+    campaignId,
     assignedTo,
     priority,
     classification,
@@ -783,6 +852,9 @@ function OrdersPageContent() {
     if (region) chips.push(`${t("orders_filter_region")} ${region}`);
     if (phone) chips.push(`${t("orders_filter_phone")} ${phone}`);
     if (sku) chips.push(`${t("orders_filter_product")} ${sku}`);
+    if (aid) chips.push(`${t("orders_filter_aid")} ${aid}`);
+    if (adId) chips.push(`${t("orders_filter_ad_id")} ${adId}`);
+    if (campaignId) chips.push(`${t("orders_filter_campaign_id")} ${campaignId}`);
     if (assignedTo) {
       chips.push(
         `${t("orders_filter_assigned")} ${staffName(assignedTo) ?? "—"}`,
@@ -809,6 +881,9 @@ function OrdersPageContent() {
     region,
     phone,
     sku,
+    aid,
+    adId,
+    campaignId,
     assignedTo,
     staffName,
     priority,
@@ -836,6 +911,10 @@ function OrdersPageContent() {
       if (patch.region !== undefined) url.region = patch.region || null;
       if (patch.phone !== undefined) url.phone = patch.phone || null;
       if (patch.sku !== undefined) url.sku = patch.sku || null;
+      if (patch.aid !== undefined) url.aid = patch.aid || null;
+      if (patch.adId !== undefined) url.adId = patch.adId || null;
+      if (patch.campaignId !== undefined)
+        url.campaignId = patch.campaignId || null;
       if (patch.owner !== undefined) url.assignedTo = patch.owner || null;
       if (patch.priority !== undefined) url.priority = patch.priority || null;
       if (patch.classification !== undefined)
@@ -852,6 +931,9 @@ function OrdersPageContent() {
   );
 
   const rows = data?.items ?? [];
+  const selectedRows = selection.scope === queryKey && !loading && !error
+    ? rows.filter(row => selection.ids.includes(row.id)) : [];
+  const selectedIds = new Set(selectedRows.map(row => row.id));
 
   return (
     <div className="w-full max-w-none px-4 py-5 md:px-8">
@@ -930,9 +1012,12 @@ function OrdersPageContent() {
           onChange={onFilterChange}
           onClear={clearFilters}
           assignees={assignees}
+          optimizers={orderOptimizers}
           statusOptions={[]}
           hiddenColumns={hiddenColumns}
+          columnOrder={columnOrder}
           onToggleColumn={toggleColumn}
+          onMoveColumn={moveColumn}
           onResetColumns={resetColumns}
           views={views}
           onApplyView={applyView}
@@ -949,6 +1034,8 @@ function OrdersPageContent() {
           ? `${t("orders_filter_summary")}：${filterChips.join(" · ")} —— ${t("orders_filter_hit")} ${data?.total ?? 0} ${t("orders_filter_summary_count")}`
           : `${t("orders_filter_total")} ${data?.total ?? 0} ${t("orders_filter_summary_count")}`}
       </p>
+
+      <BulkOrderActions key={searchParams.toString()} rows={selectedRows} assignees={assignees} hasPermission={hasPermission} onDone={reload} />
 
       {/* The table. */}
       <div className="mt-2">
@@ -982,6 +1069,11 @@ function OrdersPageContent() {
         ) : (
           <OrderTable
             rows={rows}
+            selection={{
+              ids: selectedIds,
+              onToggle: id => setSelection({ scope: queryKey, ids: selectedIds.has(id) ? [...selectedIds].filter(key => key !== id) : [...selectedIds, id] }),
+              onSelectPage: () => setSelection({ scope: queryKey, ids: selectedRows.length === rows.length ? [] : rows.map(row => row.id) }),
+            }}
             columns={columns}
             widths={colWidths}
             onWidthChange={changeWidth}

@@ -16,6 +16,11 @@ interface PriceBoxProps {
   /** Keep the compare-at price while optionally omitting the percentage badge. */
   showDiscountBadge?: boolean;
   /**
+   * Render a live discount's price in the sale red (campaign cards only).
+   * Undiscounted prices stay ink regardless of this flag.
+   */
+  saleHighlight?: boolean;
+  /**
    * Drop the sale badge below the sm breakpoint. The sticky buy bar sets this
    * so its narrow phone layout keeps the price and strikethrough while making
    * room for both purchase actions.
@@ -35,6 +40,7 @@ export function PriceBox({
   showSavings = false,
   showDiscountBadge = true,
   hideDiscountBadgeOnMobile = false,
+  saleHighlight = false,
 }: PriceBoxProps) {
   if (price === null) return null;
 
@@ -46,7 +52,7 @@ export function PriceBox({
 
   return (
     <div className={`flex flex-wrap items-baseline ${showSavings ? "gap-x-2 gap-y-1" : "gap-2"}`}>
-      <span className={`${size === "lg" ? "whitespace-nowrap text-2xl" : "text-lg"} font-bold text-ink`} data-testid="price">
+      <span className={`${size === "lg" ? "whitespace-nowrap text-2xl" : "text-lg"} font-bold ${hasDiscount && saleHighlight ? "text-sale" : "text-ink"}`} data-testid="price">
         {formatPrice(price, currency)}
       </span>
       {hasDiscount && (

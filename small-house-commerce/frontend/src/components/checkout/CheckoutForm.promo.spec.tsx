@@ -8,6 +8,7 @@ const eventsMock = vi.hoisted(() => ({ recordSubmitAttempt: vi.fn(), recordSubmi
 vi.mock("@/lib/checkout-events", () => eventsMock);
 const apiMock = vi.hoisted(() => ({
   previewPromoCode: vi.fn(),
+  getPaymentMethods: vi.fn(),
 }));
 const routerMock = vi.hoisted(() => ({ push: vi.fn() }));
 const draftMock = vi.hoisted(() => ({
@@ -24,7 +25,11 @@ vi.mock("@/lib/api", async () => {
   const actual = await vi.importActual<typeof import("@/lib/api")>("@/lib/api");
   return {
     ...actual,
-    api: { ...actual.api, previewPromoCode: apiMock.previewPromoCode },
+    api: {
+      ...actual.api,
+      previewPromoCode: apiMock.previewPromoCode,
+      getPaymentMethods: apiMock.getPaymentMethods,
+    },
   };
 });
 vi.mock("next/navigation", () => ({ useRouter: () => routerMock }));
@@ -77,6 +82,16 @@ beforeEach(() => {
   // test must start with an empty tab or a previous note is restored.
   localStorage.clear();
   draftMock.readCheckoutDraft.mockReturnValue(null);
+  apiMock.getPaymentMethods.mockResolvedValue({
+    codEnabled: true,
+    revision: 0,
+    methods: [
+      { id: "COD", enabled: true },
+      { id: "CARD", enabled: false },
+      { id: "GCASH", enabled: false },
+      { id: "BPI", enabled: false },
+    ],
+  });
   validationMock.validateCheckoutForm.mockReturnValue({});
   validationMock.validatePreferredDate.mockReturnValue(null);
   checkoutLinesMock.mockReturnValue({
@@ -162,15 +177,18 @@ describe("CheckoutForm promo code", () => {
     );
 
     await user.click(screen.getByTestId("review-order"));
+    // The preferred-date picker is hidden for now, so the draft carries no
+    // date (a stale restored value would otherwise reach the backend).
     expect(draftMock.writeCheckoutDraft).toHaveBeenCalledWith(
       expect.any(Object),
-      expect.any(String),
+      null,
       undefined,
       "SAVE10",
       null,
+      "COD",
     );
     expect(routerMock.push).toHaveBeenCalledWith(
-      "/checkout/confirm?items=item-1",
+      "/checkout/confirm?items=item-1&auto=1",
     );
   });
 
@@ -219,10 +237,11 @@ describe("CheckoutForm order notes", () => {
 
     expect(draftMock.writeCheckoutDraft).toHaveBeenCalledWith(
       expect.any(Object),
-      expect.any(String),
+      null,
       undefined,
       null,
       "Please call before delivery",
+      "COD",
     );
   });
 
@@ -234,10 +253,11 @@ describe("CheckoutForm order notes", () => {
 
     expect(draftMock.writeCheckoutDraft).toHaveBeenCalledWith(
       expect.any(Object),
-      expect.any(String),
+      null,
       undefined,
       null,
       null,
+      "COD",
     );
   });
 
@@ -259,7 +279,7 @@ describe("CheckoutForm totals summary", () => {
     );
   });
 
-  it("shows the original price as the subtotal so the savings rows add up", () => {
+  it("shows the pre-discount total as the subtotal and the saving below it", () => {
     checkoutLinesMock.mockReturnValue({
       isBuyNow: false,
       cartLoading: false,
@@ -281,12 +301,14 @@ describe("CheckoutForm totals summary", () => {
     });
     render(<CheckoutForm itemsParam="item-1" />);
 
-    const subtotal = screen.getByText("Subtotal").nextElementSibling;
+    // The money rows read: the pre-discount total, then what it saves.
+    const subtotal = screen.getByTestId("checkout-subtotal-compare");
     expect(subtotal).toHaveTextContent("₱130.00");
-    expect(subtotal).not.toHaveTextContent("₱100.00");
-    expect(screen.getByTestId("checkout-subtotal-compare")).not.toHaveClass(
-      "line-through",
+    expect(subtotal).not.toHaveClass("line-through");
+    expect(screen.getByText("You save").nextElementSibling).toHaveTextContent(
+      "−₱30.00",
     );
+    expect(screen.queryByText("Original price")).toBeNull();
   });
 
   it("shows the promo discount in the summary and lowers the total", async () => {
@@ -373,22 +395,59 @@ describe("CheckoutForm mobile summary order", () => {
     }));
     expect(routerMock.push).not.toHaveBeenCalled();
   });
-  it("lifts the totals card above the name field on phones and leaves the desktop grid alone", () => {
+  it("lays the page out address → summary (with notes) → submit", () => {
     render(<CheckoutForm itemsParam="item-1" />);
 
     const totals = screen.getByTestId("checkout-totals");
-    const delivery = document
-      .getElementById("checkout-name")!
-      .closest("section")!.parentElement!;
-    const summaryRow = totals.parentElement!;
+    const summarySection = totals.closest("section")!;
+    const address = screen.getByLabelText("Delivery address");
+    const notes = screen.getByTestId("checkout-notes");
+    const submit = screen.getByTestId("review-order");
 
-    expect(totals).toHaveClass("order-2", "lg:order-none");
-    expect(delivery).toHaveClass("order-3", "lg:order-none");
-    expect(summaryRow).toHaveClass("contents", "lg:flex");
-    expect(summaryRow).toHaveClass("lg:row-start-2");
-    expect(screen.getByTestId("review-order").parentElement).toHaveClass(
-      "order-6",
-      "lg:order-none",
-    );
+    // One card carries the items, the totals and the order note together.
+    expect(summarySection).toHaveAttribute("aria-label", "Order summary");
+    expect(summarySection.contains(totals)).toBe(true);
+    expect(summarySection.contains(notes)).toBe(true);
+    // Shopee/JD checkout order: title, address, items, (hidden date), submit.
+    expect(
+      address.compareDocumentPosition(summarySection) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      summarySection.compareDocumentPosition(submit) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    // The preferred-date picker and the small print are hidden for now.
+    expect(screen.queryByTestId("checkout-preferred-date")).toBeNull();
+    expect(screen.queryByTestId("checkout-preferred-date-hint")).toBeNull();
+    expect(screen.queryByTestId("checkout-privacy-note")).toBeNull();
+    // With no saved address the card invites adding one instead of shouting.
+    expect(address).toHaveTextContent(/No delivery address yet/);
+  });
+
+  it("orders street → postal code → landmark and keeps street copy compact", async () => {
+    render(<CheckoutForm itemsParam="item-1" />);
+
+    await screen.findByRole("dialog");
+    const street = document.getElementById("checkout-address")!;
+    const postal = document.getElementById("checkout-postal-code")!;
+    const landmark = document.getElementById("checkout-landmark")!;
+
+    expect(
+      street.compareDocumentPosition(postal) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      postal.compareDocumentPosition(landmark) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(street).toHaveClass("h-10", "text-sm", "placeholder:text-sm");
+  });
+
+  it("opens the address dialog when PLACE ORDER fails validation", async () => {
+    validationMock.validateCheckoutForm.mockReturnValue({ name: "Full name is required" });
+    render(<CheckoutForm itemsParam="item-1" />);
+    await userEvent.setup().click(screen.getByTestId("review-order"));
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(screen.getByTestId("checkout-address-submit")).toBeInTheDocument();
+    expect(routerMock.push).not.toHaveBeenCalled();
   });
 });

@@ -79,6 +79,25 @@ const listRow = (overrides: Record<string, unknown> = {}) => ({
 });
 
 describe('the workbench list', () => {
+  it.each([
+    ['waiting', 'asc'], ['newest', 'desc'], [undefined, 'asc'],
+  ] as const)('sorts %s by the effective start clock before database pagination', async (sort, direction) => {
+    const { service, prisma } = createHarness();
+    await service.list({ page: 2, pageSize: 20, sort });
+    expect(prisma.order.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      orderBy: [{ workbenchStartedAt: direction }, { id: direction }],
+      skip: 20, take: 20,
+    }));
+  });
+
+  it('retains the verification sort instead of changing it into a time sort', async () => {
+    const { service, prisma } = createHarness();
+    await service.list({ page: 1, pageSize: 20, sort: 'verify' });
+    expect(prisma.order.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      orderBy: { verificationAssignments: { _count: 'asc' } },
+    }));
+  });
+
   it('asks for the address, the real unit price and the verification checklist', async () => {
     const { service, prisma } = createHarness();
     prisma.order.findMany.mockResolvedValue([listRow()]);
@@ -148,6 +167,42 @@ describe('the workbench list', () => {
     await service.list({ page: 1, pageSize: 20, phone: '+639171224466' });
     const args = prisma.order.findMany.mock.calls[0]![0] as { where: Record<string, unknown> };
     expect(JSON.stringify(args.where)).toContain('normalizedPhone');
+  });
+
+  it('finds a stored +63 number when the operator searches the local 09 form', async () => {
+    const { service, prisma } = createHarness();
+    prisma.order.findMany.mockResolvedValue([]);
+    await service.list({ page: 1, pageSize: 20, search: '0917 122' });
+    const where = JSON.stringify(
+      (prisma.order.findMany.mock.calls[0]![0] as { where: unknown }).where,
+    );
+    expect(where).toContain('+63917122');
+  });
+
+  it('keeps name and order-number search untouched', async () => {
+    const { service, prisma } = createHarness();
+    prisma.order.findMany.mockResolvedValue([]);
+    await service.list({ page: 1, pageSize: 20, search: 'PH100004' });
+    const where = JSON.stringify(
+      (prisma.order.findMany.mock.calls[0]![0] as { where: unknown }).where,
+    );
+    expect(where).toContain('orderNumber');
+    expect(where).not.toContain('+63');
+  });
+
+  it('normalizes a full local phone in the dedicated filter, keeping customer history exact', async () => {
+    const { service, prisma } = createHarness();
+    await service.list({ page: 1, pageSize: 20, phone: '09171224466' });
+    const where = (prisma.order.findMany.mock.calls[0]![0] as { where: { customer: unknown } }).where;
+    expect(where.customer).toEqual({ normalizedPhone: '+639171224466' });
+  });
+
+  it('matches a partial local phone and formatted numeric fragments from the dedicated filter', async () => {
+    const { service, prisma } = createHarness();
+    await service.list({ page: 1, pageSize: 20, phone: '0917' });
+    expect(JSON.stringify((prisma.order.findMany.mock.calls[0]![0] as { where: unknown }).where)).toContain('+63917');
+    await service.list({ page: 1, pageSize: 20, search: '224 466' });
+    expect(JSON.stringify((prisma.order.findMany.mock.calls[1]![0] as { where: unknown }).where)).toContain('224466');
   });
 
   it('filters by product (SKU) and by the owner priority', async () => {

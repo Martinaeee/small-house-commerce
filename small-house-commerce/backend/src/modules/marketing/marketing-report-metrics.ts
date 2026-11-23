@@ -10,9 +10,15 @@ export type MarketingReportRawRow = Record<CountField, bigint> & {
   productId: string | null; productName: string | null; productCode: string | null; landingPageId: string | null;
   sourceType: string | null;
   postDate?: Date | null; postUrl?: string | null; archivedAt?: Date | null;
+  /** Newest link creation in this row's scope; absent on legacy sources. */
+  createdAt?: Date | null;
   visits: bigint | null; pageTotalVisits?: bigint | null;
   /** First-party funnel counts; performance-side callers predate them. */
   addToCarts?: bigint; checkouts?: bigint;
+  /** ADID/AID attribution views only. */
+  adId?: string | null; adIdSource?: string | null; adIdMissingReason?: string | null;
+  adVisits?: bigint; productViews?: bigint; linkCount?: bigint; adCount?: bigint;
+  linkName?: string | null;
   validOrderValuePhp: Prisma.Decimal; signedGrossPhp: Prisma.Decimal; spendUsd: Prisma.Decimal; spendPhp: Prisma.Decimal;
   expectedCostDays: bigint; recordedCostDays: bigint;
 };
@@ -27,7 +33,11 @@ export type MarketingReportSerializedRow = SortableReportRow & {
   conversionRate: string | null; periodBasis: 'TOUCH' | 'ORDER_CREATED';
   productCode: string | null; landingPageId: string | null; sourceType: string | null;
   postDate: string | null; postUrl: string | null; archivedAt: string | null;
+  createdAt: string | null;
   productThumbnailUrl: string | null; pageTotalVisits: number | null;
+  adId: string | null; adIdSource: string | null; adIdMissingReason: string | null;
+  adVisits: number; productViews: number; linkCount: number | null; adCount: number | null;
+  linkName: string | null;
 };
 
 export function serializeMarketingReportRow(row: MarketingReportRawRow, productThumbnailUrl: string | null = null): MarketingReportSerializedRow {
@@ -48,8 +58,17 @@ export function serializeMarketingReportRow(row: MarketingReportRawRow, productT
     postDate: row.postDate ? row.postDate.toISOString().slice(0, 10) : null,
     postUrl: row.postUrl ?? null,
     archivedAt: row.archivedAt ? row.archivedAt.toISOString() : null,
+    createdAt: row.createdAt ? row.createdAt.toISOString() : null,
     addToCarts: Number(row.addToCarts ?? 0n),
     checkouts: Number(row.checkouts ?? 0n),
+    adId: row.adId ?? null,
+    adIdSource: row.adIdSource ?? null,
+    adIdMissingReason: row.adIdMissingReason ?? null,
+    adVisits: Number(row.adVisits ?? 0n),
+    productViews: Number(row.productViews ?? 0n),
+    linkCount: row.linkCount == null ? null : Number(row.linkCount),
+    adCount: row.adCount == null ? null : Number(row.adCount),
+    linkName: row.linkName ?? null,
     productThumbnailUrl: productThumbnailUrl ?? null,
     ...counts, visits, pageTotalVisits: row.pageTotalVisits == null ? null : Number(row.pageTotalVisits),
     validOrderValuePhp: new Prisma.Decimal(row.validOrderValuePhp).toFixed(2), signedGrossPhp: new Prisma.Decimal(row.signedGrossPhp).toFixed(2),

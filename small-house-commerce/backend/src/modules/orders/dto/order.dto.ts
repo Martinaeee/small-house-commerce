@@ -22,6 +22,8 @@ export const checkoutSchema = z.object({
     )
     .min(1),
   marketingCredential: z.string().max(8192).nullable().optional(),
+  // Server-read first-touch cookie; browser JS never sees it.
+  marketingFirstCredential: z.string().max(8192).nullable().optional(),
   // The browser tab that placed the order. It links the order to the
   // first-party events, so the dashboard's conversion rate divides ordering
   // sessions by all sessions. Never a customer identity.
@@ -116,6 +118,10 @@ export const checkoutSchema = z.object({
   // order to its draft; it never changes what was bought and is excluded from
   // the idempotency fingerprint.
   checkoutDraftToken: z.string().min(20).max(200).nullable().optional(),
+  // Payment choice at checkout (design 2026-11-20): COD stays the default so
+  // every existing client keeps its meaning. It IS part of the fingerprint
+  // when non-COD, so the same idempotency key can never switch payment paths.
+  paymentMethod: z.enum(['COD', 'CARD', 'GCASH', 'BPI']).default('COD'),
 });
 
 export const orderQuerySchema = z.object({
@@ -139,8 +145,14 @@ export const orderQuerySchema = z.object({
   assignedTo: z.string().uuid().optional(),
   risk: z.enum(['POSSIBLE_DUPLICATE', 'CUSTOMER_RECHECK', 'CUSTOMER_BLOCKED']).optional(),
   search: z.string().max(255).optional(),
-  // Exact customer phone (E.164). The customer history opens with it.
+  // Full phone: exact canonical customer history. Partial phone: fuzzy filter.
   phone: z.string().max(32).optional(),
+  // Attribution filters: optimizer AID (the stable operator code), the real
+  // Meta ad ID or the stable advertising number, and the Meta campaign ID.
+  aid: z.string().trim().max(64).optional(),
+  adId: z.string().trim().max(64).optional(),
+  campaignId: z.string().trim().max(64).optional(),
+  optimizerId: z.string().uuid().optional(),
   // Product: a SKU code or part of the product name.
   sku: z.string().max(64).optional(),
   // The priority of the open verification assignment.
@@ -194,6 +206,22 @@ export const lookupSchema = z
 export type CheckoutInput = z.infer<typeof checkoutSchema>;
 export type OrderQuery = z.infer<typeof orderQuerySchema>;
 export type LookupInput = z.infer<typeof lookupSchema>;
+
+/**
+ * F04 result recovery: the shopper's browser presents the same key it used
+ * for the checkout request (body, never the URL) and asks whether that
+ * attempt already produced an order. Same charset/length contract as the
+ * checkout idempotency key.
+ */
+export const attemptStatusSchema = z.object({
+  idempotencyKey: z
+    .string()
+    .trim()
+    .min(16)
+    .max(120)
+    .regex(/^[A-Za-z0-9_-]+$/),
+});
+export type AttemptStatusInput = z.infer<typeof attemptStatusSchema>;
 
 // --- Order workbench DTOs (2026-09-18 spec) ---
 
@@ -306,9 +334,15 @@ export type LogisticsEventInput = z.infer<typeof logisticsEventSchema>;
  * Manual order entry can name the checkout draft it completes. The field is
  * deliberately absent from the storefront schema: only an operator who has
  * already spoken to the customer may consume that draft.
+ *
+ * The payment method is COD only: an operator takes the money on delivery,
+ * so this entry point cannot start a payment session. Posting an online
+ * method is rejected outright rather than quietly downgraded — a silent
+ * downgrade would leave an order waiting for a session nobody will start.
  */
 export const adminCheckoutSchema = checkoutSchema.extend({
   checkoutDraftId: z.string().uuid().optional(),
+  paymentMethod: z.literal('COD').default('COD'),
 });
 export type AdminCheckoutInput = z.infer<typeof adminCheckoutSchema>;
 

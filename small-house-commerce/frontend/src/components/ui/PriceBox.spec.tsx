@@ -50,4 +50,17 @@ describe("PriceBox PDP presentation", () => {
     expect(screen.getByText("50% OFF")).toHaveClass("hidden", "sm:inline");
     expect(screen.queryByText(/Save/)).toBeNull();
   });
+
+  it("turns a discounted price red only when the caller opts in and a discount is live", () => {
+    const { rerender } = render(<PriceBox price={100} compareAtPrice={200} saleHighlight />);
+    expect(screen.getByTestId("price")).toHaveClass("text-sale");
+    expect(screen.getByTestId("price")).not.toHaveClass("text-ink");
+    rerender(<PriceBox price={100} compareAtPrice={200} />);
+    expect(screen.getByTestId("price")).toHaveClass("text-ink");
+    expect(screen.getByTestId("price")).not.toHaveClass("text-sale");
+    // An undiscounted price stays ink even when the caller opted in.
+    rerender(<PriceBox price={200} saleHighlight />);
+    expect(screen.getByTestId("price")).toHaveClass("text-ink");
+    expect(screen.getByTestId("price")).not.toHaveClass("text-sale");
+  });
 });

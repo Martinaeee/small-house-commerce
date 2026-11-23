@@ -97,12 +97,14 @@ export interface AdminCheckoutDraftSummary {
   assignee: { id: string; name: string } | null;
   nextFollowUpAt: string | null;
   lastContactedAt: string | null;
+  convertedAt?: string | null;
   createdAt: string;
   updatedAt: string;
   expiresAt: string;
 }
 
 export interface AdminCheckoutDraftDetail extends AdminCheckoutDraftSummary {
+  clientRevision: number;
   snapshot: {
     customer: Record<
       | "name"
@@ -140,6 +142,19 @@ export interface AdminCheckoutDraftDetail extends AdminCheckoutDraftSummary {
     createdAt: string;
   }[];
 }
+
+export interface AdminDraftRisk {
+  validPhone: boolean;
+  requiresReview: boolean;
+  classification: string | null;
+  reason: string | null;
+  orders: { id: string; orderNumber: string; riskFlags: { flagType: string; reason: string | null }[] }[];
+}
+export type BulkOrderAction =
+  | { action: "confirm" | "cancel" | "delete"; ids: string[] }
+  | { action: "assign"; ids: string[]; assignedToId: string }
+  | { action: "status"; ids: string[]; status: "PENDING" | "QUESTION" | "ABNORMAL" | "DENIED" | "AFTER_SALES"; comment?: string };
+export interface BulkOrderResult { id: string; ok: boolean; error?: string }
 
 // --- global search -----------------------------------------------------------
 
@@ -291,6 +306,10 @@ export interface AdminOrderRow {
   confirmedBy: string | null;
   confirmedAt: string | null;
   confirmationNote: string | null;
+  /** Start of the checkout draft; survives draft retention cleanup. */
+  draftStartedAt?: string | null;
+  /** True only when an operator converted the draft from the workbench. */
+  draftConvertedManually?: boolean;
   createdAt: string;
   updatedAt: string;
   preferredDeliveryDate: string | null;
@@ -343,10 +362,45 @@ export interface AdminVerificationSummary {
   assigneeId: string | null;
 }
 
+export interface AdminAttributionTouch {
+  sourceType: SourceType;
+  aid: string | null;
+  adId: string | null;
+  campaignId: string | null;
+  adsetId: string | null;
+  fbclid: string | null;
+  productName: string | null;
+  landingPageId: string | null;
+  touchedAt: string;
+  paid: boolean | null;
+}
+
+export interface AdminOrderAttributionSummary {
+  sourceType: SourceType;
+  /** Stable advertising number; null on organic/direct orders. */
+  adid: string | null;
+  /** The real Meta ad ID, when a registered link or paid URL carried one. */
+  adId: string | null;
+  aidSnapshot: string | null;
+  campaignId: string | null;
+  adsetId: string | null;
+  fbclid: string | null;
+  touchedAt: string | null;
+  firstTouch: AdminAttributionTouch | null;
+  lastPaidTouch: AdminAttributionTouch | null;
+  attributionModel: "FIRST_ONLY" | "LAST_PAID" | null;
+  attributionCapturedAt: string | null;
+  attributionTouchId: string | null;
+}
+
 export interface AdminOrderListRow extends AdminOrderRow {
   customer: AdminOrderCustomer;
   /** The order's advertising number; null on organic/direct orders. */
   adid: string | null;
+  /** The real Meta ad ID, without the stable-number fallback. */
+  adId: string | null;
+  campaignId: string | null;
+  attributionDetail: AdminOrderAttributionSummary | null;
   items: {
     id: string;
     skuCodeSnapshot: string;
@@ -381,6 +435,10 @@ export interface AdminOrderListRow extends AdminOrderRow {
   } | null;
   /** The payment method of the order (COD / online). */
   paymentMethod: string | null;
+  /** For an online order, the gateway channel it is paid through. */
+  paymentChannel: string | null;
+  /** The newest gateway attempt's state. */
+  paymentAttemptStatus: string | null;
   verification: AdminVerificationSummary;
 }
 
@@ -695,6 +753,11 @@ export interface AdminOrderDetail extends Omit<AdminOrderListRow, "items"> {
     utmTerm: string | null;
     fbclid: string | null;
     attributedAt: string;
+    firstTouch: AdminAttributionTouch | null;
+    lastPaidTouch: AdminAttributionTouch | null;
+    attributionModel: "FIRST_ONLY" | "LAST_PAID" | null;
+    attributionCapturedAt: string | null;
+    attributionTouchId: string | null;
   } | null;
   payments: {
     id: string;
@@ -703,6 +766,22 @@ export interface AdminOrderDetail extends Omit<AdminOrderListRow, "items"> {
     amount: string;
     reference: string | null;
     paidAt: string | null;
+    createdAt: string;
+  }[];
+  /** The gateway attempts of an online payment, newest first. */
+  sunrateAttempts?: {
+    id: string;
+    channel: string;
+    env: string;
+    merchantOrderNum: string;
+    amount: string;
+    currency: string;
+    transId: string | null;
+    /** Masked snapshot only, when the channel returned it. */
+    cardBrand: string | null;
+    cardLast4: string | null;
+    status: string;
+    lastQueryAt: string | null;
     createdAt: string;
   }[];
   statusHistory: AdminStatusHistory[];
@@ -838,6 +917,7 @@ export interface AdminDetailBlock {
   sortOrder: number;
   optionValueId?: string | null;
   variantId?: string | null;
+  groupKey?: string;
 }
 
 export type AdminFaqMode = "SHARED" | "EXTEND" | "CUSTOM";
@@ -1298,6 +1378,24 @@ export interface NewsletterPromotionUsage {
   availability: "LIVE" | "SCHEDULED" | "EXPIRED" | "EXHAUSTED" | "ARCHIVED";
 }
 
+export type AdminPaymentMethodId = "COD" | "CARD" | "GCASH" | "BPI";
+
+/** One method's switch, as the admin settings page shows it. */
+export interface AdminPaymentMethodState {
+  id: AdminPaymentMethodId;
+  enabled: boolean;
+  /** Whether the method COULD be switched on (gateway configured). */
+  ready: boolean;
+  updatedAt: string | null;
+  updatedBy: string | null;
+}
+
+export interface AdminPaymentMethodsSettings {
+  codEnabled: boolean;
+  revision: number;
+  methods: AdminPaymentMethodState[];
+}
+
 export interface AdminSiteSettings {
   id: string;
   messengerUrl: string;
@@ -1520,6 +1618,7 @@ export interface CreateProductInput {
     sortOrder?: number;
     optionValueId?: string;
     variantId?: string;
+    groupKey?: string;
   }[];
   variants: {
     name: string;
@@ -1786,6 +1885,60 @@ export interface AdminSystemStatus {
   };
 }
 
+export interface AdminAccessErrorRow {
+  code: number;
+  path: string;
+  count: number;
+  firstAt: string | null;
+  lastAt: string | null;
+  bot: boolean;
+  sampleUa: string;
+  sampleReferer: string;
+}
+
+export interface AdminAccessImageInfo {
+  file: string;
+  width: number | null;
+  productName: string | null;
+  productSlug: string | null;
+  kind: string | null;
+}
+
+export interface AdminAccessSlowRequest {
+  ms: number;
+  uri: string;
+  status: number;
+  cache: string;
+  referer: string;
+  traffic: "human" | "bot" | "warmup";
+  image: AdminAccessImageInfo | null;
+}
+
+export interface AdminAccessReport {
+  generatedAt: string;
+  stale: boolean;
+  windowLines: number;
+  windowFirstAt: string | null;
+  windowLastAt: string | null;
+  requests: number;
+  traffic: { human: number; bot: number; warmup: number };
+  status5xx: number;
+  status4xx: number;
+  errorRate5xx: number | null;
+  images: {
+    requests: number;
+    hit: number;
+    miss: number;
+    hitRate: number | null;
+    realHitRate: number | null;
+    warmupRequests: number;
+  };
+  top5xxPaths: [string, number][];
+  errors: AdminAccessErrorRow[];
+  slowest: AdminAccessSlowRequest[];
+  statusCounts: Record<string, number>;
+}
+
 // --- team members (admin RBAC) -----------------------------------------------
 
 export type AdminRoleCode =
@@ -1857,6 +2010,21 @@ export const adminApi = {
       `/api/v1/admin/checkout-drafts/${encodeURIComponent(id)}`,
     ),
 
+  checkoutDraftRisk: (id: string, phone?: string): Promise<AdminDraftRisk> =>
+    adminAuthedFetch(`/api/v1/admin/orders/checkout-drafts/${encodeURIComponent(id)}/risk${buildQuery({ phone })}`),
+
+  convertCheckoutDraft: (id: string, input: {
+    expectedRevision: number;
+    riskReviewed: boolean;
+    customer?: AdminCheckoutDraftDetail["snapshot"]["customer"];
+    preferredDeliveryDate?: string | null;
+    customerNote?: string | null;
+  }): Promise<AdminOrderDetail> =>
+    adminAuthedFetch(`/api/v1/admin/orders/checkout-drafts/${encodeURIComponent(id)}/convert`, { method: "POST", body: JSON.stringify(input) }),
+
+  bulkOrders: (input: BulkOrderAction): Promise<{ results: BulkOrderResult[] }> =>
+    adminAuthedFetch("/api/v1/admin/orders/bulk", { method: "POST", body: JSON.stringify(input) }),
+
   searchBundleSkus: (q: string): Promise<AdminBundleSkuCandidate[]> =>
     adminAuthedFetch<AdminBundleSkuCandidate[]>(
       `/api/v1/admin/products/bundle/sku-search${q ? `?q=${encodeURIComponent(q)}` : ""}`,
@@ -1914,10 +2082,16 @@ export const adminApi = {
     assignedTo?: string;
     risk?: string;
     search?: string;
-    /** Exact customer phone (E.164) - opens the customer history. */
+    /** Full phone: exact customer history; partial phone: fuzzy filtering. */
     phone?: string;
     /** Product: a SKU code or part of the product name. */
     sku?: string;
+    /** Optimizer AID (stable operator code). */
+    aid?: string;
+    /** Real Meta ad ID or the stable advertising number. */
+    adId?: string;
+    campaignId?: string;
+    optimizerId?: string;
     /** The priority of the open verification assignment. */
     priority?: VerificationPriority;
     /** The state of the open verification assignment. */
@@ -1948,6 +2122,10 @@ export const adminApi = {
         search: p.search,
         phone: p.phone,
         sku: p.sku,
+        aid: p.aid,
+        adId: p.adId,
+        campaignId: p.campaignId,
+        optimizerId: p.optimizerId,
         priority: p.priority,
         verification: p.verification,
         followUp: p.followUp,
@@ -2091,6 +2269,23 @@ export const adminApi = {
       { method: "PATCH", body: JSON.stringify(input) },
     ),
 
+  /**
+   * Asks SUNRATE about a payment that is still open. The answer carries the
+   * refreshed order state; the list reloads from it.
+   */
+  queryOrderPayment: (
+    orderNumber: string,
+  ): Promise<{
+    orderNumber: string;
+    paymentStatus: string;
+    attemptStatus: string;
+    lastQueryAt: string | null;
+  }> =>
+    adminAuthedFetch(
+      `/api/v1/admin/payments/orders/${encodeURIComponent(orderNumber)}/query`,
+      { method: "POST" },
+    ),
+
   addOrderNote: (id: string, content: string, noteType?: string): Promise<AdminOrderNote> =>
     adminAuthedFetch<AdminOrderNote>(
       `/api/v1/admin/orders/${encodeURIComponent(id)}/notes`,
@@ -2126,6 +2321,11 @@ export const adminApi = {
       `/api/v1/admin/orders/assignees`,
     ),
 
+  orderOptimizers: (): Promise<{ id: string; aid: string; name: string | null }[]> =>
+    adminAuthedFetch<{ id: string; aid: string; name: string | null }[]>(
+      `/api/v1/admin/orders/optimizers`,
+    ),
+
   /** SKU search for manual order entry (sellable SKUs only). */
   skuSearch: (
     q: string,
@@ -2154,6 +2354,9 @@ export const adminApi = {
       search?: string;
       phone?: string;
       sku?: string;
+      aid?: string;
+      adId?: string;
+      campaignId?: string;
       priority?: VerificationPriority;
       verification?: "none" | "pending" | "problem" | "done" | "open";
       followUp?: "overdue" | "today" | "week";
@@ -2200,6 +2403,9 @@ export const adminApi = {
         search: p?.search,
         phone: p?.phone,
         sku: p?.sku,
+        aid: p?.aid,
+        adId: p?.adId,
+        campaignId: p?.campaignId,
         priority: p?.priority,
         verification: p?.verification,
         followUp: p?.followUp,
@@ -2289,7 +2495,7 @@ export const adminApi = {
     items: { skuId: string; quantity: number }[];
     preferredDeliveryDate?: string | null;
     customerNote?: string | null;
-    /** The checkout draft this operator is completing; the server claims it. */
+    /** Older draft-create callers: the server routes this through confirmed draft conversion. */
     checkoutDraftId?: string;
   }): Promise<AdminOrderRow> =>
     adminAuthedFetch<AdminOrderRow>(`/api/v1/admin/orders`, {
@@ -2778,6 +2984,22 @@ export const adminApi = {
       body: JSON.stringify(input),
     }),
 
+  // --- payment methods (per-method switches) --------------------------------
+
+  getPaymentMethodSettings: (): Promise<AdminPaymentMethodsSettings> =>
+    adminAuthedFetch<AdminPaymentMethodsSettings>(
+      "/api/v1/admin/settings/payment-methods",
+    ),
+
+  updatePaymentMethodSettings: (input: {
+    methods: { id: AdminPaymentMethodId; enabled: boolean }[];
+    revision: number;
+  }): Promise<AdminPaymentMethodsSettings> =>
+    adminAuthedFetch<AdminPaymentMethodsSettings>(
+      "/api/v1/admin/settings/payment-methods",
+      { method: "PATCH", body: JSON.stringify(input) },
+    ),
+
   presignUpload: (
     contentType: string,
     fileName: string,
@@ -2906,6 +3128,10 @@ export const adminApi = {
   /** Host/system snapshot for the admin status page (read-only). */
   systemStatus: (): Promise<AdminSystemStatus> =>
     adminAuthedFetch<AdminSystemStatus>("/api/v1/admin/system-status"),
+
+  /** 5xx rate, image-cache hit ratio and slowest paths (read-only). */
+  systemAccess: (): Promise<AdminAccessReport> =>
+    adminAuthedFetch<AdminAccessReport>("/api/v1/admin/system-status/access"),
 
   /** Meta CAPI queue depth and last failure (read-only). */
   metaCapiStatus: (): Promise<AdminMetaCapiStatus> =>

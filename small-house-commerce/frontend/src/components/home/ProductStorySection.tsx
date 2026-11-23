@@ -8,6 +8,7 @@ import type { SectionProps } from "./sectionRegistry";
 import { trackAttrs } from "@/lib/home-tracking";
 import { moduleLayoutPresentation } from "@/lib/homepage-responsive";
 import { optimizedUploadImage } from "@/lib/image-url";
+import { productCoverMedia } from "@/lib/product-cover";
 
 const str = (v: unknown): string => (typeof v === "string" ? v : "");
 
@@ -15,9 +16,10 @@ export function ProductStorySection({ section, previewDevice, appearance }: Sect
   const p = section.payload ?? {};
   const layout = moduleLayoutPresentation("PRODUCT_STORY", p.layout, previewDevice, undefined, appearance);
   const product = (p.product ?? null) as Product | null;
-  // Effective cover media from the backend contract — never images[0].
+  // Effective cover media from the backend contract — never images[0],
+  // and never a gallery video standing in for a still image.
   const image =
-    str(p.imageUrl) || product?.effectiveCoverMedia?.url || "";
+    str(p.imageUrl) || productCoverMedia(product)?.url || "";
   const heading = str(p.heading) || section.title || "";
   const body = str(p.body);
   const ctaLink = str(p.ctaLink) || (product ? `/products/${product.slug}` : "");

@@ -3,7 +3,7 @@
 import { useState } from "react";
 import type { HomepageSection, HydratedRoomScene } from "@/lib/api";
 import { RoomProductList } from "./RoomSceneGallery";
-import { optimizedUploadImage } from "@/lib/image-url";
+import { optimizedUploadImage, optimizedUploadImageSrcSet, FULL_BLEED_IMAGE_WIDTHS } from "@/lib/image-url";
 
 /**
  * The room scenes stacked vertically on their own page: every scene gets the
@@ -46,6 +46,8 @@ export function RoomSceneStack({
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={optimizedUploadImage(scene.imageUrl, 1440)}
+                srcSet={optimizedUploadImageSrcSet(scene.imageUrl, FULL_BLEED_IMAGE_WIDTHS)}
+                sizes="100vw"
                 alt={scene.alt ?? section.title ?? ""}
                 loading="lazy"
                 className="h-full w-full object-contain"

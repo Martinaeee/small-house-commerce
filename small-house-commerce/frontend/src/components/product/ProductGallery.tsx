@@ -6,7 +6,7 @@ import { useDesktopViewport } from "./useDesktopViewport";
 import type { ProductImage } from "@/lib/api";
 import { PlaceholderImage } from "@/components/ui/PlaceholderImage";
 import { ViewportVideo } from "./ViewportVideo";
-import { optimizedUploadImage } from "@/lib/image-url";
+import { optimizedUploadImage, optimizedUploadImageSrcSet, COLUMN_IMAGE_WIDTHS } from "@/lib/image-url";
 
 interface Props {
   images: ProductImage[];
@@ -161,8 +161,22 @@ export function ProductGallery({ images, active, onSelect, onOpenLightbox, mobil
     onOpenLightbox(index);
   };
 
+  const firstImage = images[0]?.type === "IMAGE" ? images[0] : undefined;
+
   return (
     <div data-testid="product-gallery" className="-mx-4 flex flex-col sm:mx-0">
+      {firstImage && (
+        // The gallery photo is the largest thing on the first phone screen,
+        // so start its download with the document instead of after the
+        // stylesheet and the JS chunks have resolved.
+        <link
+          rel="preload"
+          as="image"
+          href={optimizedUploadImage(firstImage.url, 1280)}
+          imageSrcSet={optimizedUploadImageSrcSet(firstImage.url, COLUMN_IMAGE_WIDTHS)}
+          imageSizes="(min-width: 1024px) 50vw, 100vw"
+        />
+      )}
       <div className="relative">
       <div
         ref={trackRef}
@@ -193,6 +207,9 @@ export function ProductGallery({ images, active, onSelect, onOpenLightbox, mobil
               // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={optimizedUploadImage(image.url, 1280)}
+                srcSet={optimizedUploadImageSrcSet(image.url, COLUMN_IMAGE_WIDTHS)}
+                sizes="(min-width: 1024px) 50vw, 100vw"
+                fetchPriority={index === 0 ? "high" : undefined}
                 alt={image.altText ?? "Product image"}
                 loading={index === 0 ? "eager" : "lazy"}
                 className="aspect-square w-full object-cover"

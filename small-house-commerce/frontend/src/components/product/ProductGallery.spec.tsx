@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ProductImage } from "@/lib/api";
+import { optimizedUploadImage, optimizedUploadImageSrcSet, COLUMN_IMAGE_WIDTHS } from "@/lib/image-url";
 import { ProductGallery } from "./ProductGallery";
 import { installDesktopViewport } from "@/test/desktop-viewport";
 
@@ -250,5 +251,45 @@ describe("ProductGallery swipe", () => {
     fireEvent.pointerDown(track);
     fireEvent.click(second);
     expect(onOpenLightbox).toHaveBeenCalledWith(1);
+  });
+
+  it("preloads the first gallery image and gives it high fetch priority", () => {
+    // The optimizer only emits a srcset for /uploads sources, which is what
+    // every catalog photo is; the shorter fixture keeps the assertions about
+    // the rendition ladder honest.
+    const uploads: ProductImage[] = [
+      {
+        id: "upload-1",
+        url: "/uploads/catalog/2026/hero.png",
+        type: "IMAGE",
+        altText: "Hero image",
+        sortOrder: 0,
+      },
+    ];
+    render(
+      <ProductGallery
+        images={uploads}
+        active={0}
+        onSelect={vi.fn()}
+        onOpenLightbox={vi.fn()}
+      />,
+    );
+
+    // The gallery photo is the phone LCP element; without a preload it waits
+    // behind the stylesheet and the JS chunks.
+    const preload = document.querySelector('link[rel="preload"][as="image"]');
+    expect(preload).not.toBeNull();
+    expect(preload!.getAttribute("href")).toBe(
+      optimizedUploadImage(uploads[0].url, 1280),
+    );
+    expect(preload!.getAttribute("imagesrcset")).toBe(
+      optimizedUploadImageSrcSet(uploads[0].url, COLUMN_IMAGE_WIDTHS),
+    );
+    expect(preload!.getAttribute("imagesizes")).toBe(
+      "(min-width: 1024px) 50vw, 100vw",
+    );
+
+    const hero = screen.getByAltText("Hero image");
+    expect(hero).toHaveAttribute("fetchpriority", "high");
   });
 });

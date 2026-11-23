@@ -27,6 +27,7 @@ import {
 } from "@/lib/admin-api";
 import { errorStatus } from "@/lib/admin-auth";
 import { api, type Product } from "@/lib/api";
+import { productCoverMedia } from "@/lib/product-cover";
 
 // Badge source collections (storefront PLP reads membership of these slugs).
 const NEW_BADGE_SLUG = "new-arrivals";
@@ -105,7 +106,7 @@ async function fetchAllMembers(slug: string): Promise<MemberItem[]> {
         id: p.id,
         name: p.name,
         slug: p.slug,
-        imageUrl: p.effectiveCoverMedia?.url ?? p.images?.[0]?.url ?? null,
+        imageUrl: productCoverMedia(p)?.url ?? null,
       });
     }
     if (out.length >= res.total || res.items.length === 0) break;

@@ -1,11 +1,11 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 
-type TouchResponse = { credential: string | null; expiresAt: string | null };
+type TouchResponse = { credential: string | null; expiresAt: string | null; paid?: boolean };
 type TouchInput = Parameters<(typeof import("./api"))["api"]["marketingTouch"]>[0];
 const apiMock = vi.hoisted(() => ({ marketingTouch: vi.fn<(input: TouchInput) => Promise<TouchResponse>>() }));
 vi.mock("@/lib/api", () => ({ api: apiMock }));
 let tracking: typeof import("./tracking");
-const touch = (credential: string, expiresAt = "2026-10-18T01:00:00Z"): TouchResponse => ({ credential, expiresAt });
+const touch = (credential: string, expiresAt = "2026-10-18T01:00:00Z", paid?: boolean): TouchResponse => ({ credential, expiresAt, ...(paid === undefined ? {} : { paid }) });
 
 beforeEach(async () => {
   vi.resetModules(); vi.clearAllMocks();
@@ -17,15 +17,15 @@ beforeEach(async () => {
 afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
 
 describe("effective public marketing touches", () => {
-  it("stores a server credential from a product cl entry and never forwards raw owner or ad overrides", async () => {
+  it("forwards the aid for conflict detection and never forwards raw owner overrides", async () => {
     await tracking.recordMarketingTouch({ path: "/products/chair", search: "cl=abcdefghijklmnop&aid=FORGED&ad_id=forged" });
     expect(tracking.readAttribution()).toEqual({ marketingCredential: "first.credential" });
-    expect(apiMock.marketingTouch).toHaveBeenCalledWith({ code: "abcdefghijklmnop", path: "/products/chair", visitKey: expect.any(String) });
+    expect(apiMock.marketingTouch).toHaveBeenCalledWith({ code: "abcdefghijklmnop", aid: "FORGED", path: "/products/chair", visitKey: expect.any(String) });
   });
 
   it.each(["adid", "ad_id"])("forwards a numeric %s alongside a registered link", async (key) => {
     await tracking.recordMarketingTouch({ path: "/products/chair", search: `cl=abcdefghijklmnop&${key}=120212345678901234&aid=FORGED&utm_source=forged` });
-    expect(apiMock.marketingTouch).toHaveBeenCalledWith({ code: "abcdefghijklmnop", path: "/products/chair", visitKey: expect.any(String), adId: "120212345678901234" });
+    expect(apiMock.marketingTouch).toHaveBeenCalledWith(expect.objectContaining({ code: "abcdefghijklmnop", adId: "120212345678901234", aid: "FORGED", utmSource: "forged" }));
     expect(tracking.readAttribution()).toEqual({ marketingCredential: "first.credential" });
   });
 
@@ -35,9 +35,9 @@ describe("effective public marketing touches", () => {
     expect(tracking.readAttribution()).toEqual({ marketingCredential: "first.credential" });
   });
 
-  it("prefers canonical ad_id when both numeric aliases are present", async () => {
+  it("prefers adid over the legacy ad_id when both numeric aliases are present", async () => {
     await tracking.recordMarketingTouch({ path: "/lp/chair-ad", search: "cl=abcdefghijklmnop&ad_id=120200000000001&adid=120200000000002", landingPageId: "44444444-4444-4444-a444-444444444444" });
-    expect(apiMock.marketingTouch).toHaveBeenCalledWith(expect.objectContaining({ code: "abcdefghijklmnop", adId: "120200000000001" }));
+    expect(apiMock.marketingTouch).toHaveBeenCalledWith(expect.objectContaining({ code: "abcdefghijklmnop", adId: "120200000000002" }));
   });
 
   it.each(["", "{{ad.id}}", "forged", "12345", "123456789012345678901", "120212345678901234,", "1e15"])("ignores invalid cl ad IDs without dropping the visit: %j", async (adId) => {
@@ -71,6 +71,23 @@ describe("effective public marketing touches", () => {
     expect(tracking.readAttribution()).toEqual({ marketingCredential: "first.credential" });
   });
 
+  it("keeps an organic touch when no paid touch exists", async () => {
+    apiMock.marketingTouch.mockResolvedValueOnce(touch("organic.credential", "2026-10-18T01:00:00Z", false));
+    await tracking.recordMarketingTouch({ path: "/products/chair", search: "cl=abcdefghijklmnop" });
+    expect(tracking.readAttribution()).toEqual({ marketingCredential: "organic.credential" });
+  });
+
+  it("lets a paid touch replace an organic one but never the reverse", async () => {
+    apiMock.marketingTouch.mockResolvedValueOnce(touch("organic.credential", "2026-10-18T01:00:00Z", false));
+    await tracking.recordMarketingTouch({ path: "/products/chair", search: "cl=abcdefghijklmnop" });
+    apiMock.marketingTouch.mockResolvedValueOnce(touch("paid.credential", "2026-10-18T02:00:00Z", true));
+    await tracking.recordMarketingTouch({ path: "/products/chair", search: "cl=paid" });
+    expect(tracking.readAttribution()).toEqual({ marketingCredential: "paid.credential" });
+    apiMock.marketingTouch.mockResolvedValueOnce(touch("later.organic", "2026-10-18T03:00:00Z", false));
+    await tracking.recordMarketingTouch({ path: "/lp/chair-ad", search: "", landingPageId: "44444444-4444-4444-a444-444444444444" });
+    expect(tracking.readAttribution()).toEqual({ marketingCredential: "paid.credential" });
+  });
+
   it("does not let a slow older response replace a newer valid touch", async () => {
     let finishOld!: (response: TouchResponse) => void;
     apiMock.marketingTouch.mockImplementationOnce(() => new Promise(resolve => { finishOld = resolve; }));
@@ -94,9 +111,9 @@ describe("effective public marketing touches", () => {
     expect(tracking.readAttribution()).toEqual({ marketingCredential: "first.credential" });
   });
 
-  it("sends legacy fields only for an explicit AID, with canonical ad_id taking precedence", async () => {
-    await tracking.recordMarketingTouch({ path: "/products/chair", search: "aid=OP-1&ad_id=canonical&adid=legacy&utm_content=creative" });
-    expect(apiMock.marketingTouch).toHaveBeenCalledWith(expect.objectContaining({ aid: "OP-1", adId: "canonical", utmContent: "creative" }));
+  it("sends an explicit AID with adid priority and the paid fields", async () => {
+    await tracking.recordMarketingTouch({ path: "/products/chair", search: "aid=OP-1&ad_id=120200000000001&adid=120200000000002&utm_content=creative&ad_set_id=120200000000003" });
+    expect(apiMock.marketingTouch).toHaveBeenCalledWith(expect.objectContaining({ aid: "OP-1", adId: "120200000000002", adsetId: "120200000000003", utmContent: "creative" }));
     expect(tracking.readAttribution()).toEqual({ marketingCredential: "first.credential" });
   });
 });

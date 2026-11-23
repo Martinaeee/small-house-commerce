@@ -57,9 +57,28 @@ export function ReviewCard({ review }: { review: Review }) {
   const [reportState, setReportState] = useState<ReportState>("idle");
   const [reportReason, setReportReason] = useState("");
   const [expanded, setExpanded] = useState(false);
+  // Tappable review photos: the shopper can open one full-size and swipe
+  // through the rest of that review's photos.
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [measuredOverflow, setMeasuredOverflow] = useState(false);
   const bodyRef = useRef<HTMLParagraphElement | null>(null);
   const bodyId = `review-body-${review.id}`;
+
+  useEffect(() => {
+    if (lightboxIndex === null) return;
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") setLightboxIndex(null);
+      else if (event.key === "ArrowRight") {
+        setLightboxIndex((i) => (i === null ? i : (i + 1) % review.photos.length));
+      } else if (event.key === "ArrowLeft") {
+        setLightboxIndex((i) =>
+          i === null ? i : (i - 1 + review.photos.length) % review.photos.length,
+        );
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [lightboxIndex, review.photos.length]);
 
   useEffect(() => {
     const element = bodyRef.current;
@@ -174,18 +193,89 @@ export function ReviewCard({ review }: { review: Review }) {
 
       {review.photos.length > 0 && (
         <div className="mt-2 flex gap-2">
-          {review.photos.map((photo) => (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
+          {review.photos.map((photo, index) => (
+            <button
               key={photo}
-              src={optimizedUploadImage(photo, 96)}
-              alt="Customer review"
-              className="h-16 w-16 rounded-md border border-border object-cover"
-              loading="lazy"
-            />
+              type="button"
+              aria-label={`Open review photo ${index + 1} of ${review.photos.length}`}
+              onClick={() => setLightboxIndex(index)}
+              className="overflow-hidden rounded-md border border-border transition-opacity hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cta"
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={optimizedUploadImage(photo, 96)}
+                alt="Customer review"
+                className="h-16 w-16 rounded-md object-cover"
+                loading="lazy"
+              />
+            </button>
           ))}
         </div>
       )}
+
+      {lightboxIndex !== null && review.photos[lightboxIndex] ? (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Customer review photo"
+          className="fixed inset-0 z-[80] flex items-center justify-center bg-ink/85 p-4"
+          onClick={() => setLightboxIndex(null)}
+        >
+          <button
+            type="button"
+            aria-label="Close photo"
+            onClick={() => setLightboxIndex(null)}
+            className="absolute right-4 top-4 z-10 inline-flex h-10 w-10 items-center justify-center rounded-full bg-white/90 text-ink transition hover:bg-white"
+          >
+            <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+              <path d="M6 6l12 12M18 6 6 18" strokeLinecap="round" />
+            </svg>
+          </button>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={optimizedUploadImage(review.photos[lightboxIndex], 1080)}
+            alt="Customer review"
+            className="max-h-[86dvh] max-w-[92vw] rounded-lg object-contain"
+            onClick={(event) => event.stopPropagation()}
+          />
+          {review.photos.length > 1 ? (
+            <>
+              <button
+                type="button"
+                aria-label="Previous photo"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setLightboxIndex((i) =>
+                    i === null
+                      ? i
+                      : (i - 1 + review.photos.length) % review.photos.length,
+                  );
+                }}
+                className="absolute left-3 inline-flex h-10 w-10 items-center justify-center rounded-full bg-white/90 text-ink transition hover:bg-white"
+              >
+                <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+                  <path d="m15 5-7 7 7 7" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
+              <button
+                type="button"
+                aria-label="Next photo"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setLightboxIndex((i) =>
+                    i === null ? i : (i + 1) % review.photos.length,
+                  );
+                }}
+                className="absolute right-3 inline-flex h-10 w-10 items-center justify-center rounded-full bg-white/90 text-ink transition hover:bg-white"
+              >
+                <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+                  <path d="m9 5 7 7-7 7" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
+            </>
+          ) : null}
+        </div>
+      ) : null}
 
       <div className="mt-3 flex flex-wrap items-center gap-3">
         <button

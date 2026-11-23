@@ -3,7 +3,7 @@ import { groupLinksBySource } from "@/lib/marketing-link-groups";
 import type { CampaignLinkRow } from "@/lib/marketing-api";
 
 const base: CampaignLinkRow = {
-  id: "x", code: "c", adid: "FB-OP-1-261103-01", name: "n", sourceType: "FB_POST", productId: "p1", productName: "Chair", productCode: "P-1",
+  id: "x", code: "c", adid: "FB-OP-1-261103-01", name: "n", sourceType: "FB_POST", attributionMode: "CL", metaUrlParameters: "", productId: "p1", productName: "Chair", productCode: "P-1",
   productThumbnailUrl: null, variantId: null, variantNameSnapshot: null, landingPageId: null, pageName: null,
   ownerUserId: "u1", ownerName: "Optimizer", aid: "OP-1", path: "/products/chair?cl=c", status: "ACTIVE", version: 1,
   createdAt: "2026-11-03T01:00:00Z", updatedAt: "2026-11-03T01:00:00Z", postDate: "2026-11-03", postUrl: null, archivedAt: null,

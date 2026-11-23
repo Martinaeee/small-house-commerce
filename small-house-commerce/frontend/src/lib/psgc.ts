@@ -53,14 +53,24 @@ for (const p of provinces) {
 }
 
 /**
+ * Isabela City is listed by PSGC (Region IX) as its own province-level row
+ * with no municipalities of its own: it is an independent city inside
+ * Basilan's landmass, commonly addressed as "Isabela City, Basilan". The
+ * snapshot therefore cannot express it through the normal province → city
+ * relation, so it is handled explicitly here and in the backend barangay
+ * lookup. Its code prefix is 0997, which is why it must never fall back to
+ * the Region II province "Isabela".
+ */
+export const ISABELA_CITY = "Isabela City";
+
+/**
  * Distinct PSGC province names, ordered by region (canonical PSGC region
  * order) then alphabetically within each region (spec §3.3).
  *
- * Provinces whose municipality list is empty are EXCLUDED: the snapshot lists
- * "Isabela City" (Region IX) as a province with zero municipalities.json rows,
- * so selecting it would dead-end the required City select with no options and
- * no free-text path (final-review finding 2). Its barangays (prefix 0997) are
- * likewise unreachable, so nothing is lost by hiding it.
+ * Provinces whose municipality list is empty are EXCLUDED so selecting one
+ * cannot dead-end the required City select. Isabela City is the one exception:
+ * its city is itself, so it stays selectable instead of being hidden (the
+ * earlier exclusion made every Isabela City, Basilan address impossible).
  */
 export function listProvinces(): string[] {
   const withCities = new Set(municipalities.map((m) => m.province));
@@ -70,20 +80,27 @@ export function listProvinces(): string[] {
     return index === -1 ? regionOrder.length : index;
   };
   return Array.from(new Set(provinces.map((p) => p.name)))
-    .filter((name) => withCities.has(name))
+    .filter((name) => withCities.has(name) || name === ISABELA_CITY)
     .sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
 }
 
 /**
  * Municipality/city names for a province (exact name match). Cities sort first,
  * municipalities after; alphabetical within each group. Both are selectable.
+ *
+ * Isabela City appears twice on purpose: as the only city of its province-level
+ * row, and inside Basilan (its geographic province), so both address forms a
+ * shopper may type or receive from a map resolve to the same barangays.
  */
 export function listMunicipalities(province: string): string[] {
+  if (province === ISABELA_CITY) return [ISABELA_CITY];
   const rows = municipalities.filter((m) => m.province === province);
   const collate = (a: string, b: string) => a.localeCompare(b);
   const cities = rows.filter((m) => m.city).map((m) => m.name).sort(collate);
   const towns = rows.filter((m) => !m.city).map((m) => m.name).sort(collate);
-  return Array.from(new Set([...cities, ...towns]));
+  const names = [...cities, ...towns];
+  if (province === "Basilan") names.unshift(ISABELA_CITY);
+  return Array.from(new Set(names));
 }
 
 /** Fetch one province|city pair at most per page load (spec §3.3 Map cache). */
@@ -151,6 +168,71 @@ export async function reverseGeocode(lat: number, lon: number): Promise<Nominati
     city: a.city ?? a.municipality ?? a.town,
     barangay: a.suburb ?? a.neighbourhood,
   };
+}
+
+/** One type-ahead row for the New Address street field (Nominatim search). */
+export interface NominatimSuggestion {
+  displayName: string;
+  /** "house_number road" when available, else the caller falls back to the
+   *  first display-name segment. */
+  street?: string;
+  province?: string;
+  city?: string;
+  barangay?: string;
+}
+
+/**
+ * Nominatim forward search (client-side, no key) for the street type-ahead.
+ * Restricted to the Philippines and capped at five rows. Returns [] on any
+ * failure — suggestions are a convenience; the shopper can always type the
+ * address by hand. Nominatim usage policy: callers only search after a short
+ * debounce (≥500 ms) and ≥5 typed characters (see CheckoutAddressDialog).
+ */
+export async function searchAddressSuggestions(
+  query: string,
+  signal?: AbortSignal,
+): Promise<NominatimSuggestion[]> {
+  const q = query.trim();
+  if (q.length < 5) return [];
+  const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&countrycodes=ph&limit=5&q=${encodeURIComponent(q)}`;
+  const res = await fetch(url, {
+    headers: { "Accept-Language": "en" },
+    signal: signal ?? AbortSignal.timeout(10_000),
+  });
+  if (!res.ok) return [];
+  const data = (await res.json()) as Array<{
+    display_name?: string;
+    address?: {
+      house_number?: string;
+      road?: string;
+      pedestrian?: string;
+      province?: string;
+      state?: string;
+      region?: string;
+      city?: string;
+      municipality?: string;
+      town?: string;
+      suburb?: string;
+      neighbourhood?: string;
+      quarter?: string;
+      village?: string;
+    };
+  }>;
+  return data
+    .map((item) => {
+      const a = item.address ?? {};
+      const street = [a.house_number, a.road ?? a.pedestrian]
+        .filter(Boolean)
+        .join(" ");
+      return {
+        displayName: item.display_name ?? "",
+        street: street || undefined,
+        province: a.province ?? a.state ?? a.region,
+        city: a.city ?? a.municipality ?? a.town,
+        barangay: a.suburb ?? a.neighbourhood ?? a.quarter ?? a.village,
+      };
+    })
+    .filter((suggestion) => suggestion.displayName !== "");
 }
 
 /**

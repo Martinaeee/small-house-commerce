@@ -11,6 +11,7 @@ import {
   type AdminVerificationState,
 } from "@/lib/admin-api";
 import { fullDateTime, peso, shortDateTime } from "./workbench/format";
+import { OrderProcessTimes } from "./workbench/OrderProcessTimes";
 import { useCustomerHistory } from "./workbench/useCustomerHistory";
 
 /**
@@ -417,6 +418,7 @@ export function OrderHistoryDialog({
           {error}
         </p>
       ) : null}
+      {detail ? <OrderProcessTimes order={detail} /> : null}
       <div className="mb-3 flex flex-wrap gap-2">
         {CATEGORIES.map((value) => (
           <button

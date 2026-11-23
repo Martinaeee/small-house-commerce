@@ -153,8 +153,7 @@ export function recordSubmitFailure(input: {
   idempotencyKey: string;
   field?: string;
   occurrence?: SubmitOccurrence;
-}): void {
-  try {
+}): void {  try {
     const base = payload(
       input.step,
       input.items,

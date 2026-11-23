@@ -62,13 +62,46 @@ describe('persisted owner-scoped campaign links', () => {
   it('uses the authenticated owner and a random code while excluding raw attribution overrides', async () => {
     const { service } = setup();
     const link = await service.createLink({ ...base, aid: 'OTHER', ownerUserId: U2 } as never, owner);
-    expect(link).toMatchObject({ ownerUserId: U1, aid: 'OP-1' });
+    expect(link).toMatchObject({ ownerUserId: U1, aid: 'OP-1', attributionMode: 'AID' });
     expect(link.code).toMatch(/^[A-Za-z0-9_-]{16}$/);
     const url = new URL(link.path, 'https://example.test');
     expect(url.pathname).toBe('/products/chair');
+    expect(url.searchParams.get('aid')).toBe('OP-1');
+    expect(url.searchParams.get('cl')).toBeNull();
+    expect(link.metaUrlParameters).toBe(`cl=${link.code}&aid=OP-1&adid={{ad.id}}`);
+    expect(link.cleanPath).toBe('/products/chair');
+    expect(link.cl).toBe(link.code);
+    expect(campaignLinkCreateSchema.safeParse({ ...base, ownerUserId: U2 }).success).toBe(false);
+  });
+
+  it('keeps a legacy cl link only when explicitly selected', async () => {
+    const { service } = setup();
+    const link = await service.createLink({ ...base, attributionMode: 'CL' }, owner);
+    const url = new URL(link.path, 'https://example.test');
     expect(url.searchParams.get('cl')).toBe(link.code);
     expect(url.searchParams.get('aid')).toBeNull();
-    expect(campaignLinkCreateSchema.safeParse({ ...base, ownerUserId: U2 }).success).toBe(false);
+    expect(link.attributionMode).toBe('CL');
+  });
+
+  it('keeps the variant on the clean URL but drops tracking parameters', async () => {
+    const { service } = setup();
+    const link = await service.createLink({ ...base, variantId: V1, attributionMode: 'CL' }, owner);
+    expect(link.cleanPath).toBe(`/products/chair?variant=${V1}`);
+    expect(link.metaUrlParameters).toBe(`cl=${link.code}&aid=OP-1&adid={{ad.id}}`);
+  });
+
+  it('keeps FB_POST on the legacy tracking path with no clean URL or Meta parameters', async () => {
+    const { service } = setup();
+    const link = await service.createLink({ ...base, sourceType: 'FB_POST' }, owner);
+    expect(link.cleanPath).toBeNull();
+    expect(link.metaUrlParameters).toBeNull();
+    expect(link.cl).toBe(link.code);
+    expect(link.path).toContain(`cl=${link.code}`);
+  });
+
+  it('rejects a Meta template stored as a static ad ID and an AID post link', () => {
+    expect(campaignLinkCreateSchema.safeParse({ ...base, adId: '{{ad.id}}' }).success).toBe(false);
+    expect(campaignLinkCreateSchema.safeParse({ ...base, sourceType: 'FB_POST', postDate: '2026-11-07', attributionMode: 'AID' }).success).toBe(false);
   });
 
 
@@ -147,6 +180,13 @@ describe('persisted owner-scoped campaign links', () => {
     expect(campaignLinkCloneSchema.parse({ name: 'Copy' })).toEqual({ name: 'Copy' });
     expect(campaignLinkCloneSchema.parse({ adId: ' ad-B ', utmCampaign: null })).toEqual({ adId: 'ad-B', utmCampaign: null });
     for (const field of ['ownerUserId', 'aid', 'targetUrl', 'code']) expect(campaignLinkCloneSchema.safeParse({ [field]: U2 }).success).toBe(false);
+  });
+
+  it('rejects template ad IDs and an AID post link at the clone service boundary', async () => {
+    const { service } = setup();
+    const original = await service.createLink(base, owner);
+    await expect(service.cloneLink(original.id, { adId: '{{ad.id}}' }, admin)).rejects.toMatchObject({ status: 400 });
+    await expect(service.cloneLink(original.id, { sourceType: 'FB_POST', attributionMode: 'AID' }, admin)).rejects.toMatchObject({ status: 400 });
   });
 
   it('clones immutable parameters to a new code without changing the original link', async () => {

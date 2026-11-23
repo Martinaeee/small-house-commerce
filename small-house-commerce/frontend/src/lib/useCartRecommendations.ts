@@ -1,7 +1,7 @@
 // src/lib/useCartRecommendations.ts
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api, type CartSummary, type Product, type Sku } from "@/lib/api";
 import { fetchProduct } from "@/lib/productCache";
 import { createInitialSelection, resolveSelection } from "@/lib/product-selection";
@@ -44,6 +44,31 @@ export function directAddSku(product: Product): Sku | null {
 }
 
 /**
+ * The one-click add SKU the merchant pinned in the admin: the product's
+ * default display variant, when it is sellable. Falls back to the single
+ * sellable SKU for one-variant products. Returns null when neither exists —
+ * the combination genuinely needs the picker.
+ */
+export function defaultAddSku(product: Product): Sku | null {
+  if (product.defaultDisplayVariantId) {
+    const { resolvedVariant } = resolveSelection(
+      product,
+      createInitialSelection(product, product.defaultDisplayVariantId),
+    );
+    const sku = resolvedVariant?.sku ?? null;
+    if (
+      sku &&
+      sku.status === "ACTIVE" &&
+      sku.price !== null &&
+      sku.availableInventory > 0
+    ) {
+      return sku;
+    }
+  }
+  return directAddSku(product);
+}
+
+/**
  * Recommendable product: at least one sellable (ACTIVE, priced) SKU with
  * inventory, regardless of its position in the payload.
  */
@@ -78,6 +103,9 @@ export function useCartRecommendations(
   );
   const cartKey = cartSlugs.join(",");
   const [pools, setPools] = useState<Pools | null>(null);
+  // While a cart change triggers a pool refresh, the previous list keeps the
+  // rail stable instead of collapsing to empty for the refetch window.
+  const lastGoodRef = useRef<Product[]>([]);
 
   // Resolve cart-line categories (detail payloads are session-cached), then
   // fetch the three candidate pools. State is only set after the awaits.
@@ -111,7 +139,7 @@ export function useCartRecommendations(
   }, [cartKey, includeEmptyCart]);
 
   return useMemo<Product[]>(() => {
-    if (!pools || pools.cartKey !== cartKey) return [];
+    if (!pools || pools.cartKey !== cartKey) return lastGoodRef.current;
     const inCart = new Set(cartSlugs);
     const cartCategories = new Set(pools.cartCategoryIds);
 
@@ -154,6 +182,7 @@ export function useCartRecommendations(
       chosen.push(product);
       if (chosen.length >= take) break;
     }
+    lastGoodRef.current = chosen;
     return chosen;
   }, [pools, cartKey, cartSlugs, take]);
 }

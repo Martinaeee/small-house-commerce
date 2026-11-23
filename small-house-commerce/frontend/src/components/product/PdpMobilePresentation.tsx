@@ -7,6 +7,7 @@ import { emitCommerceEvent, optionSelectEvent } from "@/lib/commerce-events";
 import { PriceBox } from "@/components/ui/PriceBox";
 import { usePdpPurchase } from "./PdpPurchaseProvider";
 import { isCompatibleValue } from "./ProductOptionSelector";
+import { resolvePdpBanner } from "./pdp-banner";
 import { RatingStars } from "./RatingStars";
 import styles from "./PdpMobile.module.css";
 
@@ -63,12 +64,18 @@ export function PdpVariantRail({ onOpen, preview = false }: {
 }
 
 export function PdpMobilePrice({ size = "md" }: { size?: "md" | "lg" }) {
-  const { primaryDerived } = usePdpPurchase();
+  const { product, primaryDerived } = usePdpPurchase();
   if (primaryDerived.price === null) return null;
+  // Inside a live campaign card the discounted price and the sold count read
+  // in the sale red; without a campaign both keep their plain presentation.
+  const framed = resolvePdpBanner(product) !== null;
+  const discounted =
+    primaryDerived.compareAtPrice !== null &&
+    primaryDerived.compareAtPrice > primaryDerived.price;
   return (
     <div className={styles.priceRow}>
-      <PriceBox price={primaryDerived.price} compareAtPrice={primaryDerived.compareAtPrice} size={size} showDiscountBadge={false} />
-      <span className={styles.sold}>80+ sold</span>
+      <PriceBox price={primaryDerived.price} compareAtPrice={primaryDerived.compareAtPrice} size={size} showDiscountBadge={false} saleHighlight={framed} />
+      <span className={styles.sold} data-sale={framed && discounted ? "true" : undefined}>80+ sold</span>
     </div>
   );
 }

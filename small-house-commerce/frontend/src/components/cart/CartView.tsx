@@ -202,18 +202,24 @@ function ItemThumb({ item }: { item: CartItem }) {
 
 function totalsFor(items: CartItem[]) {
   // Selling-price subtotal: compareAtPrice is only a strikethrough reference,
-  // not a discount deducted again at checkout.
+  // not a discount deducted again at checkout. The reference total shown
+  // under the real total sums that strikethrough price across selected lines.
   let subtotal = 0;
+  let compareAtTotal = 0;
   for (const item of items) {
     if (item.unitPrice === null) continue;
     subtotal += item.unitPrice * item.quantity;
+    const reference = item.compareAtPrice ?? item.unitPrice;
+    if (reference > item.unitPrice) {
+      compareAtTotal += reference * item.quantity;
+    }
   }
-  return { subtotal, discount: 0, total: subtotal };
+  return { subtotal, compareAtTotal, discount: 0, total: subtotal };
 }
 
 export function CartView() {
   const router = useRouter();
-  const { cart, loading, updateItem, removeItem, openChangeOptions } = useCart();
+  const { cart, loading, error: loadError, reload, updateItem, removeItem, openChangeOptions } = useCart();
   const [selection, setSelection] = useState<Set<string>>(new Set());
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -283,6 +289,26 @@ export function CartView() {
 
   if (loading) {
     return <p className="py-16 text-center text-ink-secondary">Loading your cart…</p>;
+  }
+
+  if (!cart && loadError) {
+    // F01: a failed read is not an empty cart. Keep the stored cart id and
+    // offer a retry instead of telling the shopper their cart is empty.
+    return (
+      <div className="mx-auto flex max-w-[600px] flex-col items-center gap-4 px-4 py-16 text-center">
+        <h1 className="text-3xl font-semibold text-ink">Your Cart</h1>
+        <p role="alert" data-testid="cart-load-error" className="text-ink-secondary">
+          {loadError}
+        </p>
+        <button
+          type="button"
+          onClick={() => void reload()}
+          className="inline-flex h-12 items-center justify-center rounded-lg bg-cta px-6 text-base font-semibold text-cta-foreground hover:bg-cta-hover"
+        >
+          Try again
+        </button>
+      </div>
+    );
   }
 
   if (!cart || cart.items.length === 0) {
@@ -366,6 +392,23 @@ export function CartView() {
   return (
     <div className="mx-auto max-w-[1200px] px-4 pb-28 py-8 sm:px-6 md:pb-8">
       <h1 className="mb-6 text-3xl font-semibold text-ink">Your Cart</h1>
+
+      {loadError && (
+        <p
+          role="alert"
+          data-testid="cart-load-error"
+          className="mb-4 flex items-center gap-3 rounded-lg border border-sale/40 bg-sale/5 px-3 py-2 text-sm text-sale"
+        >
+          <span className="flex-1">{loadError}</span>
+          <button
+            type="button"
+            onClick={() => void reload()}
+            className="font-semibold underline hover:no-underline"
+          >
+            Retry
+          </button>
+        </p>
+      )}
 
       {error && (
         <p role="alert" className="mb-4 rounded-lg border border-sale/40 bg-sale/5 px-3 py-2 text-sm text-sale">
@@ -509,6 +552,14 @@ export function CartView() {
               <dt className="font-semibold text-ink">Total</dt>
               <dd className="font-bold text-ink">{formatPrice(selectedTotals.total)}</dd>
             </div>
+            {selectedTotals.compareAtTotal > selectedTotals.total && (
+              <div className="flex justify-between text-xs">
+                <dt className="text-ink-muted">Original price</dt>
+                <dd className="text-ink-muted line-through">
+                  {formatPrice(selectedTotals.compareAtTotal)}
+                </dd>
+              </div>
+            )}
           </dl>
 
           {unselectedCount > 0 && (
@@ -550,6 +601,11 @@ export function CartView() {
           <div className="ml-auto text-right">
             <p className="text-xs text-ink-muted">Total</p>
             <p className="text-base font-bold text-ink">{formatPrice(selectedTotals.total)}</p>
+            {selectedTotals.compareAtTotal > selectedTotals.total && (
+              <p className="text-xs text-ink-muted line-through">
+                {formatPrice(selectedTotals.compareAtTotal)}
+              </p>
+            )}
           </div>
           <Button
             onClick={proceedToCheckout}

@@ -22,6 +22,28 @@ export function normalizePhilippinePhone(input: string): string | null {
 }
 
 /**
+ * Prefixes that match a number the way an operator types it.
+ *
+ * Phones are stored canonical (+63917…), but Filipino shoppers and carriers
+ * write them locally (0917…). A workbench search for "0917" therefore has to
+ * look for "+63917" as well. Numeric fragments may include separators; they
+ * are a search convenience, never a replacement for exact customer identity.
+ * Letters mean this is an order number or a name, not a phone.
+ */
+export function phoneSearchFragments(input: string): string[] {
+  const trimmed = input.trim();
+  if (trimmed === '' || /[a-z]/i.test(trimmed)) return [];
+
+  const digits = trimmed.replace(/\D/g, '');
+  if (digits.length < 2 || digits.length > 12) return [];
+
+  if (digits.startsWith('0')) return [`+63${digits.slice(1)}`];
+  if (digits.startsWith('63')) return [`+${digits}`];
+  if (digits.startsWith('9')) return [`+63${digits}`];
+  return [digits];
+}
+
+/**
  * Normalizes an OPTIONAL contact number that a shopper typed into a restock
  * alert. Philippine mobiles keep the canonical E.164 form used everywhere
  * else; any other plausible international number keeps its digits so the

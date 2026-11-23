@@ -9,6 +9,7 @@ import {
   type ReactElement,
   type ReactNode,
 } from "react";
+import { usePathname } from "next/navigation";
 
 import type { AnnouncementBlockView, AnnouncementItemView } from "@/lib/api";
 import { parseAnnouncementRichText } from "@/lib/announcement-rich-text";
@@ -327,6 +328,10 @@ export function AnnouncementBar({
     () => (Array.isArray(data?.items) ? data.items : []).filter(isRenderableItem),
     [data],
   );
+  // The checkout keeps the full attention for the form: the announcement strip
+  // stays on every other page, but never inside the checkout flow.
+  const pathname = usePathname();
+  const onCheckout = pathname?.startsWith("/checkout") ?? false;
   const nowMs = useAnnouncementClock(sourceItems);
   const items = useMemo(
     () => sourceItems.filter((item) => itemIsActive(item, nowMs)),
@@ -351,6 +356,7 @@ export function AnnouncementBar({
     return () => clearInterval(id);
   }, [items.length, reducedMotion, rotationMs]);
 
+  if (onCheckout) return null;
   if (!data || !data.enabled || items.length === 0) return null;
 
   const item = reducedMotion ? items[0] : items[activeIndex % items.length];

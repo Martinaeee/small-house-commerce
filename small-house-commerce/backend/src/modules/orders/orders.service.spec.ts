@@ -93,7 +93,14 @@ function createHarness(options: { skus?: Record<string, unknown>; metaCapi?: { e
   const prisma = {
     customer: { upsert: vi.fn(async () => ({ id: 'cust-1' })) },
     sku: { findUnique: vi.fn(async ({ where }: { where: { id: string } }) => skus[where.id] ?? null) },
-    order: { findUnique: vi.fn() },
+    order: {
+      findUnique: vi.fn(),
+      // Post-commit review flags and other follow-ups run on the plain client.
+      update: vi.fn(async (args: { where: Record<string, unknown>; data: Record<string, unknown> }) => ({
+        id: 'order-1',
+        ...(args?.data ?? {}),
+      })),
+    },
     $queryRaw: vi.fn(async () => [{ nextval: 1n }]),
     $transaction: vi.fn(async (cb: (t: typeof tx) => Promise<unknown>) => cb(tx)),
   };
@@ -973,6 +980,7 @@ function orderDetail(overrides: Record<string, unknown> = {}) {
     assignedBy: null,
     items: [],
     shippingAddress: null,
+    payments: [],
     riskFlags: [],
     shipments: [],
     reservations: [],
@@ -1310,6 +1318,44 @@ describe('OrdersService.checkout idempotency', () => {
     expect(harness.metaCapi.enqueuePurchase).not.toHaveBeenCalled();
   });
 
+  it('records the replay and precheck timing on the trace (W02)', async () => {
+    const harness = createHarness();
+    const input = checkoutOverrides({ idempotencyKey: KEY });
+    harness.prisma.order.findUnique.mockResolvedValueOnce(existingOrder(input));
+    const trace = { phaseMs: {} as Record<string, number>, replayed: false };
+
+    await harness.service.checkout(input, REQUEST_META, undefined, trace);
+
+    expect(trace.replayed).toBe(true);
+    expect(trace.phaseMs.precheck).toEqual(expect.any(Number));
+    expect(trace.phaseMs.total).toEqual(expect.any(Number));
+  });
+
+  it('records per-stage timings for a committed order without changing the response (W02)', async () => {
+    const harness = createHarness();
+    const trace = { phaseMs: {} as Record<string, number>, replayed: false };
+
+    const result = await harness.service.checkout(
+      checkoutOverrides({ attribution: {} }),
+      REQUEST_META,
+      undefined,
+      trace,
+    );
+
+    expect(trace.replayed).toBe(false);
+    for (const stage of ['transaction', 'postCommit', 'metaEnqueue', 'total']) {
+      expect(trace.phaseMs[stage]).toEqual(expect.any(Number));
+    }
+    expect(Object.keys(result).sort()).toEqual([
+      'confirmationStatus',
+      'grandTotal',
+      'orderNumber',
+      'orderStatus',
+      'requiresReview',
+      'riskType',
+    ]);
+  });
+
   it('returns the same authoritative grand total it sends to the Purchase outbox', async () => {
     const harness = createHarness();
     const result = await harness.service.checkout(checkoutOverrides(), REQUEST_META);
@@ -1438,5 +1484,163 @@ describe('OrdersService.checkout idempotency', () => {
       statusCode: 400,
       code: 'SKU_UNAVAILABLE',
     });
+  });
+});
+
+describe('OrdersService.receiptStatus', () => {  const PLACED = new Date('2026-11-09T06:00:00Z');
+
+  it('returns only the placed time for a live order', async () => {
+    const harness = createHarness();
+    harness.prisma.order.findUnique.mockResolvedValue({ orderStatus: 'NEW', createdAt: PLACED });
+
+    await expect(harness.service.receiptStatus('PH100030')).resolves.toEqual({
+      ok: true,
+      placedAt: '2026-11-09T06:00:00.000Z',
+    });
+  });
+
+  it('treats a cancelled order as no receipt', async () => {
+    const harness = createHarness();
+    harness.prisma.order.findUnique.mockResolvedValue({ orderStatus: 'CANCELLED', createdAt: PLACED });
+
+    await expect(harness.service.receiptStatus('PH100030')).resolves.toBeNull();
+  });
+
+  it('treats a missing order as no receipt', async () => {
+    const harness = createHarness();
+    harness.prisma.order.findUnique.mockResolvedValue(null);
+
+    await expect(harness.service.receiptStatus('PH100999')).resolves.toBeNull();
+  });
+
+  // The receipt payload canonicalises to upper case, so the lookup must use
+  // the same form or a lower-case URL would pass verification and then 404.
+  it('looks up the canonical order number regardless of input case', async () => {
+    const harness = createHarness();
+    harness.prisma.order.findUnique.mockResolvedValue({ orderStatus: 'NEW', createdAt: PLACED });
+
+    await harness.service.receiptStatus(' ph100030 ');
+
+    expect(harness.prisma.order.findUnique).toHaveBeenCalledWith({
+      where: { orderNumber: 'PH100030' },
+      select: { orderStatus: true, createdAt: true },
+    });
+  });
+});
+
+describe('OrdersService.checkout post-commit resilience', () => {
+  // F03: the order is committed inside the transaction. A failure in risk
+  // logging, the review flag or duplicate marking must not turn a successful
+  // order into "checkout failed", and one failing step must not skip the rest.
+  it('still returns the order when risk logging fails after the commit', async () => {
+    const harness = createHarness();
+    harness.customerRisk.logRisk.mockRejectedValue(new Error('risk store down'));
+
+    const result = await harness.service.checkout(checkoutOverrides());
+
+    expect(result.orderNumber).toBe('PH1');
+    expect(harness.customerRisk.markDuplicates).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries a failed post-commit step a bounded number of times', async () => {
+    const harness = createHarness();
+    harness.customerRisk.logRisk.mockRejectedValue(new Error('risk store down'));
+
+    await harness.service.checkout(checkoutOverrides());
+
+    expect(harness.customerRisk.logRisk).toHaveBeenCalledTimes(3);
+  });
+
+  it('flags the review queue even when duplicate marking fails', async () => {
+    const harness = createHarness();
+    harness.customerRisk.classifyForNewOrder.mockResolvedValue({
+      classification: 'RPT',
+      reason: 'Returning customer',
+      previousOrderId: 'order-old',
+    });
+    harness.customerRisk.markDuplicates.mockRejectedValue(new Error('duplicate store down'));
+
+    const result = await harness.service.checkout(checkoutOverrides());
+
+    expect(result.requiresReview).toBe(true);
+    expect(harness.prisma.order.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { confirmationStatus: 'NEEDS_REVIEW' } }),
+    );
+  });
+
+  it('keeps the order when the review-flag update fails, without skipping duplicate marking', async () => {
+    const harness = createHarness();
+    harness.customerRisk.classifyForNewOrder.mockResolvedValue({
+      classification: 'RECHECK',
+      reason: 'Needs a second look',
+      previousOrderId: null,
+    });
+    harness.prisma.order.update.mockRejectedValue(new Error('update failed'));
+
+    const result = await harness.service.checkout(checkoutOverrides());
+
+    expect(result.requiresReview).toBe(true);
+    expect(harness.customerRisk.markDuplicates).toHaveBeenCalledTimes(1);
+  });
+
+  it('runs no post-commit step when the transaction itself fails', async () => {
+    const harness = createHarness();
+    harness.prisma.$transaction.mockRejectedValueOnce(new Error('tx failed'));
+
+    await expect(harness.service.checkout(checkoutOverrides())).rejects.toThrow('tx failed');
+    expect(harness.customerRisk.logRisk).not.toHaveBeenCalled();
+    expect(harness.customerRisk.markDuplicates).not.toHaveBeenCalled();
+    expect(harness.metaCapi.enqueuePurchase).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * F04: read-only recovery for a checkout attempt whose response was lost.
+ * The lookup is keyed by the client's idempotency key and returns only what
+ * the success page needs; it never exposes customer or payment data.
+ */
+describe('OrdersService.attemptStatus', () => {
+  const KEY = '3f2504e0-4f89-41d3-9a0c-0305e82c3301';
+
+  it('returns the order created under the key', async () => {
+    const harness = createHarness();
+    harness.prisma.order.findUnique.mockResolvedValue({
+      orderNumber: 'PH3001',
+      orderStatus: 'NEW',
+      grandTotal: 199,
+      createdAt: new Date('2026-11-09T06:00:00.000Z'),
+      items: [{ skuId: 'sku-1', quantity: 2 }],
+    });
+
+    const status = await harness.service.attemptStatus(KEY);
+
+    expect(status).toEqual({
+      orderNumber: 'PH3001',
+      orderStatus: 'NEW',
+      grandTotal: 199,
+      placedAt: '2026-11-09T06:00:00.000Z',
+      items: [{ skuId: 'sku-1', quantity: 2 }],
+    });
+    expect(harness.prisma.order.findUnique).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { idempotencyKey: KEY } }),
+    );
+  });
+
+  it('returns null while no order exists for the key', async () => {
+    const harness = createHarness();
+    harness.prisma.order.findUnique.mockResolvedValue(null);
+    expect(await harness.service.attemptStatus(KEY)).toBeNull();
+  });
+
+  it('does not confirm an order the backend cancelled', async () => {
+    const harness = createHarness();
+    harness.prisma.order.findUnique.mockResolvedValue({
+      orderNumber: 'PH3001',
+      orderStatus: 'CANCELLED',
+      grandTotal: 199,
+      createdAt: new Date('2026-11-09T06:00:00.000Z'),
+      items: [],
+    });
+    expect(await harness.service.attemptStatus(KEY)).toBeNull();
   });
 });

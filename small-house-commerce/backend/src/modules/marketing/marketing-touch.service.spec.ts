@@ -8,6 +8,8 @@ import { OptimizersService } from './optimizers.service.js';
 
 const USER = '11111111-1111-4111-a111-111111111111';
 const PROFILE = '22222222-2222-4222-a222-222222222222';
+const USER_TWO = '88888888-8888-4888-a888-888888888888';
+const PROFILE_TWO = '99999999-9999-4999-a999-999999999999';
 const PRODUCT = '33333333-3333-4333-a333-333333333333';
 const PAGE = '44444444-4444-4444-a444-444444444444';
 const LINK = '55555555-5555-4555-a555-555555555555';
@@ -22,14 +24,16 @@ function setup() {
   const pageVisits = new Map<string, VisitData>();
   const profile = { id: PROFILE, userId: USER, aid: 'OP-1', displayName: 'Operator at touch', status: 'ACTIVE' };
   const user = { name: 'Operator', status: 'ACTIVE', optimizerProfile: profile };
+  const profile2 = { id: PROFILE_TWO, userId: USER_TWO, aid: 'OP-2', displayName: 'Operator Two', status: 'ACTIVE' };
+  const user2 = { name: 'Operator Two', status: 'ACTIVE', optimizerProfile: profile2 };
   const product = { id: PRODUCT, slug: 'chair', name: 'Saved chair', productCode: 'LUW-001', status: 'ACTIVE' };
   const page = { id: PAGE, slug: 'chair-ad', name: 'Ad page', productId: PRODUCT, ownerUserId: USER as string | null, publishedRevision: 3, publishedContent: { blocks: [] }, status: 'ACTIVE', startAt: null as Date | null, endAt: null as Date | null, product, owner: user as typeof user | null };
   const link = { id: LINK, code: 'abcdefghijklmnop', adid: 'AD-OP-1-261105-01', ownerUserId: USER, aidSnapshot: 'OP-1', productId: PRODUCT, product, landingPageId: PAGE, landingPage: page, variantId: null, owner: user, sourceType: 'META_AD', campaignId: 'campaign-A', adsetId: 'set-A', adId: 'ad-A', utmSource: 'facebook', utmMedium: 'paid', utmCampaign: 'campaign', utmContent: 'creative', utmTerm: null, status: 'ACTIVE' };
   const second = { ...link, id: SECOND_LINK, code: 'qrstuvwxyzABCDEF', adId: 'ad-B' };
   const prisma = {
     campaignLink: { findUnique: vi.fn(async ({ where }: { where: { code: string } }) => where.code === link.code ? link : where.code === second.code ? second : null) },
-    optimizerProfile: { findUnique: vi.fn(async ({ where }: { where: { aid: string } }) => where.aid === profile.aid ? profile : null) },
-    user: { findUnique: vi.fn(async () => user) },
+    optimizerProfile: { findUnique: vi.fn(async ({ where }: { where: { aid: string } }) => where.aid === profile.aid ? profile : where.aid === profile2.aid ? profile2 : null) },
+    user: { findUnique: vi.fn(async ({ where }: { where: { id: string } }) => where.id === USER_TWO ? user2 : user) },
     product: {
       findUnique: vi.fn(async () => product),
       findFirst: vi.fn(async ({ where }: { where: { id?: string; slug?: string; status: string } }) =>
@@ -56,11 +60,11 @@ beforeEach(() => { vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(STAR
 afterEach(() => vi.useRealTimers());
 
 describe('server-signed marketing touch', () => {
-  it('takes immutable attribution from the stored link rather than URL fields', async () => {
+  it('keeps link identity while letting URL attribution fields override link metadata', async () => {
     const { service } = setup();
     const result = await service.touch({ code: 'abcdefghijklmnop', visitKey: 'tab-1', aid: 'FORGED', sourceType: 'DIRECT', adId: 'forged-ad', utmSource: 'forged' });
     expect(result.expiresAt).toBe('2026-10-17T15:59:00.000Z');
-    expect(await service.resolve(result.credential)).toMatchObject({ ownerUserId: USER, ownerName: 'Operator at touch', aid: 'OP-1', linkId: LINK, productId: PRODUCT, productName: 'Saved chair', productCode: 'LUW-001', landingPageId: PAGE, publishedRevision: 3, sourceType: 'META_AD', campaignId: 'campaign-A', adsetId: 'set-A', adId: 'ad-A', utmSource: 'facebook', utmContent: 'creative', legacy: false, touchedAt: START.toISOString(), expiresAt: result.expiresAt });
+    expect(await service.resolve(result.credential)).toMatchObject({ ownerUserId: USER, ownerName: 'Operator at touch', aid: 'OP-1', linkId: LINK, productId: PRODUCT, productName: 'Saved chair', productCode: 'LUW-001', landingPageId: PAGE, publishedRevision: 3, sourceType: 'META_AD', campaignId: 'campaign-A', adsetId: 'set-A', adId: 'ad-A', utmSource: 'forged', legacy: false, paid: true, touchedAt: START.toISOString(), expiresAt: result.expiresAt });
   });
 
   it('still accepts touches signed before the advertising number existed', async () => {
@@ -70,12 +74,12 @@ describe('server-signed marketing touch', () => {
     expect(marketingTouchClaimsSchema.safeParse(claims).success).toBe(true);
   });
 
-  it('keeps the credential wire shape readable by the rollback backend', async () => {
+  it('signs version 2 claims with the paid fields and no stable ad number', async () => {
     const { service } = setup();
     const credential = await mint(service);
     const payload = JSON.parse(Buffer.from(credential.split('.')[0]!, 'base64url').toString());
     expect(payload).not.toHaveProperty('adid');
-    expect(payload).toMatchObject({ version: 1, linkId: LINK, sourceType: 'META_AD' });
+    expect(payload).toMatchObject({ version: 2, linkId: LINK, sourceType: 'META_AD', adId: 'ad-A', paid: true });
   });
 
   it('rejects payload tampering and malformed MAC lengths without throwing', async () => {
@@ -108,7 +112,7 @@ describe('server-signed marketing touch', () => {
     const credential = await mint(service);
     const before = await service.resolve(credential);
     vi.setSystemTime(new Date(START.getTime() + 1000));
-    expect(await service.touch({ code: 'unknown-code', landingPageId: PAGE, visitKey: 'tab-other' })).toEqual({ credential: null, expiresAt: null });
+    expect(await service.touch({ code: 'unknown-code', landingPageId: PAGE, visitKey: 'tab-other' })).toEqual({ credential: null, expiresAt: null, paid: false });
     expect(await service.resolve(credential)).toEqual(before);
     expect(linkVisits.size).toBe(1); expect(pageVisits.size).toBe(1);
   });
@@ -117,7 +121,7 @@ describe('server-signed marketing touch', () => {
     const { service, link, profile, page, linkVisits } = setup();
     const credential = await mint(service);
     link.status = 'DISABLED'; profile.displayName = 'Renamed operator'; page.publishedRevision = 4;
-    expect(await service.touch({ code: link.code, visitKey: 'tab-2' })).toEqual({ credential: null, expiresAt: null });
+    expect(await service.touch({ code: link.code, visitKey: 'tab-2' })).toEqual({ credential: null, expiresAt: null, paid: false });
     expect(await service.resolve(credential)).toMatchObject({ ownerUserId: USER, ownerName: 'Operator at touch', publishedRevision: 3 });
     expect(linkVisits.size).toBe(1);
   });
@@ -143,10 +147,11 @@ describe('server-signed marketing touch', () => {
     expect(linkVisits.size).toBe(0); expect(pageVisits.size).toBe(0);
   });
 
-  it('mints DIRECT attribution only for an actually live owned page, never a paid link', async () => {
+  it('records a plain landing-page visit as an unpaid DIRECT touch', async () => {
     const { service, linkVisits, pageVisits } = setup();
-    const result = await service.touch({ path: '/lp/chair-ad', visitKey: 'tab-1', adId: 'ad-A', sourceType: 'META_AD' });
-    expect(await service.resolve(result.credential)).toMatchObject({ ownerUserId: USER, linkId: null, sourceType: 'DIRECT', legacy: false, landingPageId: PAGE, adId: null, campaignId: null });
+    const result = await service.touch({ path: '/lp/chair-ad', visitKey: 'tab-1', adId: '120212345678901234', sourceType: 'META_AD' });
+    expect(result.paid).toBe(false);
+    expect(await service.resolve(result.credential)).toMatchObject({ ownerUserId: USER, aid: 'OP-1', linkId: null, sourceType: 'DIRECT', paid: false });
     expect(linkVisits.size).toBe(0); expect(pageVisits.size).toBe(1);
   });
 
@@ -160,10 +165,10 @@ describe('server-signed marketing touch', () => {
     }
   });
 
-  it('resolves legacy AID only through its registered User ID and never as a CampaignLink', async () => {
+  it('resolves an AID-only paid touch through its optimizer and records no link', async () => {
     const { service, linkVisits } = setup();
-    const result = await service.touch({ aid: ' op-1 ', sourceType: 'FB_POST', adId: 'legacy-ad', path: '/products/chair', visitKey: 'tab-1' });
-    expect(await service.resolve(result.credential)).toMatchObject({ ownerUserId: USER, aid: 'OP-1', legacy: true, linkId: null, sourceType: 'FB_POST', productId: PRODUCT, adId: 'legacy-ad' });
+    const result = await service.touch({ aid: ' op-1 ', adId: '120212345678901234', campaignId: '120200000000001', adsetId: '120200000000002', path: '/products/chair', visitKey: 'tab-1' });
+    expect(await service.resolve(result.credential)).toMatchObject({ ownerUserId: USER, aid: 'OP-1', legacy: false, linkId: null, sourceType: 'META_AD', productId: PRODUCT, adId: '120212345678901234', campaignId: '120200000000001', adsetId: '120200000000002', paid: true });
     expect(linkVisits.size).toBe(0);
   });
 
@@ -181,27 +186,27 @@ describe('server-signed marketing touch', () => {
     product.status = status;
 
     expect(await service.touch({ aid: 'OP-1', path: '/products/chair', visitKey: 'tab-1' }))
-      .toEqual({ credential: null, expiresAt: null });
+      .toEqual({ credential: null, expiresAt: null, paid: false });
   });
 
   it('does not guess an unknown legacy AID from an otherwise owned page', async () => {
     const { service } = setup();
-    expect(await service.touch({ aid: 'UNKNOWN', landingPageId: PAGE, visitKey: 'tab-1' })).toEqual({ credential: null, expiresAt: null });
+    expect(await service.touch({ aid: 'UNKNOWN', landingPageId: PAGE, visitKey: 'tab-1' })).toEqual({ credential: null, expiresAt: null, paid: false });
   });
 
   it.each(['123456', '120212345678901234', '12345678901234567890'])('uses numeric ad ID %s only when the Meta link has no saved ID', async adId => {
     const { service, link } = setup();
     Object.assign(link, { adId: null });
     const result = await service.touch({ code: link.code, visitKey: 'tab-1', adId, aid: 'FORGED', sourceType: 'DIRECT', campaignId: 'forged-campaign' });
-    expect(await service.resolve(result.credential)).toMatchObject({ adId, linkId: LINK, ownerUserId: USER, aid: 'OP-1', sourceType: 'META_AD', campaignId: 'campaign-A' });
+    expect(await service.resolve(result.credential)).toMatchObject({ adId, linkId: LINK, ownerUserId: USER, aid: 'OP-1', sourceType: 'META_AD', campaignId: 'forged-campaign', paid: true });
     expect(link.adId).toBeNull();
   });
 
-  it('never overrides a saved ad ID with a valid numeric URL ID', async () => {
+  it('overrides a saved ad ID with a valid numeric URL ID', async () => {
     const { service, link } = setup();
     link.adId = '120200000000001';
     const result = await service.touch({ code: link.code, visitKey: 'tab-1', adId: '120200000000002' });
-    expect(await service.resolve(result.credential)).toMatchObject({ adId: '120200000000001' });
+    expect(await service.resolve(result.credential)).toMatchObject({ adId: '120200000000002' });
   });
 
   it.each([undefined, null, '', '{{ad.id}}', 'forged', '12345', '123456789012345678901', '120212345678901234,', '1e15'])('keeps valid link attribution when a fallback ad ID is invalid: %j', async adId => {
@@ -211,11 +216,11 @@ describe('server-signed marketing touch', () => {
     expect(await service.resolve(result.credential)).toMatchObject({ adId: null, linkId: LINK, ownerUserId: USER, sourceType: 'META_AD' });
   });
 
-  it.each(['FB_POST', 'ORGANIC', 'DIRECT', 'EMAIL', 'OTHER'])('does not attach a URL ad ID to a %s link', async sourceType => {
+  it.each(['FB_POST', 'ORGANIC', 'DIRECT', 'EMAIL', 'OTHER'])('attaches a URL ad ID to a %s link', async sourceType => {
     const { service, link } = setup();
     Object.assign(link, { sourceType, adId: null });
     const result = await service.touch({ code: link.code, visitKey: 'tab-1', adId: '120212345678901234' });
-    expect(await service.resolve(result.credential)).toMatchObject({ adId: null, sourceType });
+    expect(await service.resolve(result.credential)).toMatchObject({ adId: '120212345678901234', sourceType });
   });
 
   it('keeps two ads on one link distinct without changing link identity or visit deduplication', async () => {
@@ -228,10 +233,80 @@ describe('server-signed marketing touch', () => {
     expect(linkVisits.size).toBe(1);
   });
 
+  it('records the dynamic Meta ad ID provenance', async () => {
+    const { service, link } = setup();
+    Object.assign(link, { adId: '120200000000001' });
+    const result = await service.touch({ code: link.code, visitKey: 'tab-1', adId: '120200000000002' });
+    expect(await service.resolve(result.credential)).toMatchObject({
+      adId: '120200000000002', adIdSource: 'META_DYNAMIC', adIdMissingReason: null,
+    });
+  });
+
+  it('falls back to the link ad ID and marks it static', async () => {
+    const { service, link } = setup();
+    Object.assign(link, { adId: '120200000000001' });
+    const result = await service.touch({ code: link.code, visitKey: 'tab-1' });
+    expect(await service.resolve(result.credential)).toMatchObject({
+      adId: '120200000000001', adIdSource: 'LINK', adIdMissingReason: null,
+    });
+  });
+
+  it('records an invalid Meta template instead of treating it as an ad ID', async () => {
+    const { service, link } = setup();
+    Object.assign(link, { adId: null });
+    const result = await service.touch({ code: link.code, visitKey: 'tab-1', adId: '{{ad.id}}' });
+    expect(await service.resolve(result.credential)).toMatchObject({
+      adId: null, adIdSource: 'NONE', adIdMissingReason: 'INVALID_META_AD_ID',
+    });
+  });
+
+  it.each(['{{ad.id}}', 'forged', '12345'])('falls back to a static link ad ID when the dynamic value is invalid: %j', async adId => {
+    const { service, link } = setup();
+    Object.assign(link, { adId: '120200000000001' });
+    const result = await service.touch({ code: link.code, visitKey: 'tab-1', adId });
+    expect(await service.resolve(result.credential)).toMatchObject({
+      adId: '120200000000001', adIdSource: 'LINK', adIdMissingReason: null,
+    });
+  });
+
+  it('keeps the legacy AID-only link compatible with a dynamic ad ID', async () => {
+    const { service } = setup();
+    const result = await service.touch({ aid: 'OP-1', adId: '120200000000002', path: '/products/chair', visitKey: 'tab-1' });
+    expect(await service.resolve(result.credential)).toMatchObject({
+      linkId: null, ownerUserId: USER, aid: 'OP-1',
+      adId: '120200000000002', adIdSource: 'META_DYNAMIC', linkResolution: 'AID',
+    });
+  });
+
+  it('falls back to AID when the CL code is unknown', async () => {
+    const { service } = setup();
+    const result = await service.touch({ code: 'missing-code', aid: 'OP-1', visitKey: 'tab-1', path: '/products/chair' });
+    expect(await service.resolve(result.credential)).toMatchObject({
+      linkId: null, ownerUserId: USER, aid: 'OP-1', linkResolution: 'AID_FALLBACK',
+      attributionConflict: true,
+    });
+  });
+
+  it('keeps the link identity when a different valid AID wins the owner', async () => {
+    const { service, link } = setup();
+    const result = await service.touch({ code: link.code, aid: 'OP-2', visitKey: 'tab-1' });
+    expect(await service.resolve(result.credential)).toMatchObject({
+      linkId: LINK, ownerUserId: USER_TWO, aid: 'OP-2', attributionConflict: true,
+    });
+  });
+
+  it('records a conflict when the supplied AID is not an active optimizer', async () => {
+    const { service, link } = setup();
+    const result = await service.touch({ code: link.code, aid: 'NOPE', visitKey: 'tab-1' });
+    expect(await service.resolve(result.credential)).toMatchObject({
+      linkId: LINK, ownerUserId: USER, aid: 'OP-1', attributionConflict: true,
+    });
+  });
+
   it('keeps unassigned public page visits without manufacturing an owner', async () => {
     const { service, page, pageVisits } = setup();
     page.ownerUserId = null; page.owner = null;
-    expect(await service.touch({ landingPageId: PAGE, visitKey: 'tab-1' })).toEqual({ credential: null, expiresAt: null });
+    expect(await service.touch({ landingPageId: PAGE, visitKey: 'tab-1' })).toEqual({ credential: null, expiresAt: null, paid: false });
     expect(pageVisits.size).toBe(1);
   });
 });

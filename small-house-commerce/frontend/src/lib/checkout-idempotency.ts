@@ -96,6 +96,81 @@ export function clearCheckoutIdempotencyKey(scope: string): void {
   }
 }
 
+/**
+ * The order a tab already placed for this checkout scope.
+ *
+ * F02: the success page must not wait for the cart cleanup, and cleanup may
+ * fail. If the shopper navigates back to the same confirmation (its URL still
+ * names the un-cleaned items), a new idempotency key would create a second
+ * order for the same purchase. This marker is written the moment the server
+ * confirms the order, so the confirmation step can re-open the receipt instead
+ * of submitting again.
+ *
+ * Tab-scoped and short-lived; a different checkout URL (new items or a new
+ * Buy Now selection) has a different scope and is unaffected.
+ */
+const COMPLETED_PREFIX = "luwag_checkout_completed:";
+export const COMPLETED_CHECKOUT_TTL_MS = 30 * 60 * 1000;
+
+export interface CompletedCheckout {
+  orderNumber: string;
+  placedAt: number;
+}
+
+export function recordCompletedCheckout(
+  scope: string,
+  orderNumber: string,
+  now: number = Date.now(),
+): void {
+  try {
+    window.sessionStorage.setItem(
+      `${COMPLETED_PREFIX}${scope}`,
+      JSON.stringify({ orderNumber, placedAt: now } satisfies CompletedCheckout),
+    );
+  } catch {
+    // Storage denied: the in-memory idempotency ref still protects this mount.
+  }
+}
+
+export function findCompletedCheckout(
+  scope: string,
+  now: number = Date.now(),
+): CompletedCheckout | null {
+  let stored: string | null = null;
+  try {
+    stored = window.sessionStorage.getItem(`${COMPLETED_PREFIX}${scope}`);
+  } catch {
+    return null;
+  }
+  if (stored === null) return null;
+  try {
+    const parsed = JSON.parse(stored) as Partial<CompletedCheckout>;
+    if (
+      typeof parsed.orderNumber !== "string" ||
+      parsed.orderNumber.length === 0 ||
+      typeof parsed.placedAt !== "number" ||
+      now - parsed.placedAt > COMPLETED_CHECKOUT_TTL_MS
+    ) {
+      return null;
+    }
+    return { orderNumber: parsed.orderNumber, placedAt: parsed.placedAt };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Cleanup managed to empty the cart, so this confirmation URL no longer
+ * describes a resubmittable purchase. The next checkout gets its own scope.
+ */
+export function clearCompletedCheckout(scope: string): void {
+  try {
+    window.sessionStorage.removeItem(`${COMPLETED_PREFIX}${scope}`);
+  } catch {
+    // Storage denied; the marker never existed.
+  }
+}
+
 function newKey(): string {
   const webCrypto = globalThis.crypto;
   if (webCrypto && typeof webCrypto.randomUUID === "function") {

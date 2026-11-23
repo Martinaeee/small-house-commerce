@@ -12,7 +12,7 @@ export function idempotencyFingerprint(input: CheckoutInput): string {
   const items = input.items
     .map((item) => ({ skuId: item.skuId, quantity: item.quantity }))
     .sort((left, right) => left.skuId.localeCompare(right.skuId) || left.quantity - right.quantity);
-  const content = {
+  const content: Record<string, unknown> = {
     customer: {
       name: input.customer.name.trim(),
       phone: normalizePhilippinePhone(input.customer.phone) ?? input.customer.phone.trim(),
@@ -28,5 +28,11 @@ export function idempotencyFingerprint(input: CheckoutInput): string {
     customerNote: input.customerNote ?? null,
     preferredDeliveryDate: input.preferredDeliveryDate ?? null,
   };
+  // Only online choices join the digest. The COD serialization stays exactly
+  // the shape the DTO had before the field existed, so every pre-existing
+  // idempotency key keeps matching on replay.
+  if (input.paymentMethod && input.paymentMethod !== 'COD') {
+    content.paymentMethod = input.paymentMethod;
+  }
   return createHash('sha256').update(JSON.stringify(content)).digest('hex');
 }

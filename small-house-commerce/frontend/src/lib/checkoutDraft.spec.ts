@@ -1,7 +1,13 @@
-import { beforeEach, describe, expect, it } from "vitest";
-import { readCheckoutDraft, writeCheckoutDraft } from "./checkoutDraft";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  checkoutDraftStorageBlocked,
+  clearCheckoutDraft,
+  readCheckoutDraft,
+  writeCheckoutDraft,
+} from "./checkoutDraft";
 
 beforeEach(() => {
+  clearCheckoutDraft();
   sessionStorage.clear();
 });
 
@@ -119,5 +125,64 @@ describe("checkout draft", () => {
     );
 
     expect(readCheckoutDraft()).toBeNull();
+  });
+});
+
+/**
+ * F05: private mode or a full storage quota must not throw away the details
+ * the shopper just typed between the form and confirmation steps.
+ */
+describe("checkout draft without usable session storage", () => {
+  const customer = {
+    name: "Ana Cruz",
+    phone: "09171234567",
+    province: "Metro Manila",
+    city: "Quezon City",
+    barangay: "",
+    postalCode: "1100",
+    streetAddress: "12 Mabini St",
+    landmark: "",
+  };
+
+  function denyStorage() {
+    vi.stubGlobal("sessionStorage", {
+      getItem: () => {
+        throw new Error("denied");
+      },
+      setItem: () => {
+        throw new Error("denied");
+      },
+      removeItem: () => {
+        throw new Error("denied");
+      },
+    } as unknown as Storage);
+  }
+
+  it("keeps the draft in memory when storage refuses the write", () => {
+    denyStorage();
+    try {
+      writeCheckoutDraft(customer, "2026-11-12", undefined, null, "Call first");
+      const draft = readCheckoutDraft();
+      expect(draft?.customer.name).toBe("Ana Cruz");
+      expect(draft?.customerNote).toBe("Call first");
+      expect(checkoutDraftStorageBlocked()).toBe(true);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("does not resurrect the draft after it is cleared", () => {
+    denyStorage();
+    try {
+      writeCheckoutDraft(customer);
+      clearCheckoutDraft();
+      expect(readCheckoutDraft()).toBeNull();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("reports usable storage when it is usable", () => {
+    expect(checkoutDraftStorageBlocked()).toBe(false);
   });
 });
