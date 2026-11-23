@@ -67,6 +67,16 @@ services:
       QIANYI_WAREHOUSE: ${QIANYI_WAREHOUSE:-}
       QIANYI_LOCAL_WAREHOUSE_ID: ${QIANYI_LOCAL_WAREHOUSE_ID:-}
       QIANYI_LOGISTICS: ${QIANYI_LOGISTICS:-}
+      # Online payments (SUNRATE). Every switch starts off; the module stays
+      # off until the credentials and the public origin are set in .env.deploy.
+      SUNRATE_ENABLED: ${SUNRATE_ENABLED:-false}
+      SUNRATE_ENV: ${SUNRATE_ENV:-}
+      SUNRATE_BASE_URL: ${SUNRATE_BASE_URL:-}
+      SUNRATE_MERCHANT_ID: ${SUNRATE_MERCHANT_ID:-}
+      SUNRATE_SIGN_KEY: ${SUNRATE_SIGN_KEY:-}
+      PAYMENTS_PUBLIC_BASE_URL: ${PAYMENTS_PUBLIC_BASE_URL:-}
+      # Online orders stay held back until Qianyi's prepaid enum is confirmed.
+      QIANYI_PREPAID_VERIFIED: ${QIANYI_PREPAID_VERIFIED:-false}
       # Local image uploads (no R2 configured): files persist in this volume
       # and are served by the backend at /uploads/* (Caddy routes it here).
       UPLOAD_DIR: /app/uploads
