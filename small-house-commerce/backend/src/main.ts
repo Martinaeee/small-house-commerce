@@ -4,6 +4,8 @@ import { ConfigService } from '@nestjs/config';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { AppModule } from './app.module.js';
+import { isCompleteCos, type CosSettings } from './modules/uploads/cos-storage.js';
+import { cosUploadsFallback } from './modules/uploads/cos-fallback.js';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
@@ -29,6 +31,10 @@ async function bootstrap() {
   const uploadDir = config.get<string>('upload.dir') ?? join(process.cwd(), 'uploads');
   mkdirSync(uploadDir, { recursive: true });
   app.useStaticAssets(uploadDir, { prefix: '/uploads/' });
+  // Files moved to COS keep their /uploads/<key> URL; the static handler
+  // falls through on a local miss and this fetches the object from the bucket.
+  const cos = config.get<Partial<CosSettings> | null>('cos');
+  app.use('/uploads', cosUploadsFallback(isCompleteCos(cos) ? cos : null));
 
   await app.listen(
     config.getOrThrow<number>('app.port'),
