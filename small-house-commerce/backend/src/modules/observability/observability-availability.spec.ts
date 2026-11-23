@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   buildUptime,
   classifyProbe,
@@ -6,7 +6,36 @@ import {
   nodeState,
   overallProbeStatus,
   probeReason,
+  probeRoutes,
 } from './observability-availability.js';
+
+afterEach(() => vi.unstubAllEnvs());
+
+describe('probe routes', () => {
+  it('keeps the product route in the list even without a path', () => {
+    vi.stubEnv('PROBE_PRODUCT_PATH', '');
+    const routes = probeRoutes();
+    // It reports UNKNOWN rather than disappearing: a missing route must not
+    // make the rest of the board look complete.
+    expect(routes.some((route) => route.key === 'product')).toBe(true);
+    expect(routes.find((route) => route.key === 'product')?.path).toBe('');
+  });
+
+  it('can leave the cart and checkout routes out', () => {
+    vi.stubEnv('PROBE_INCLUDE_CHECKOUT', 'false');
+    const keys = probeRoutes().map((route) => route.key);
+    expect(keys).not.toContain('cart');
+    expect(keys).not.toContain('checkout');
+    expect(keys).toContain('home');
+  });
+
+  it('probes the cart and checkout routes by default', () => {
+    vi.stubEnv('PROBE_INCLUDE_CHECKOUT', 'true');
+    const keys = probeRoutes().map((route) => route.key);
+    expect(keys).toContain('cart');
+    expect(keys).toContain('checkout');
+  });
+});
 
 describe('probe classification', () => {
   it('marks a failed check DOWN even when the rest passed', () => {

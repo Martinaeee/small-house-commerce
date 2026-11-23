@@ -15,7 +15,10 @@ import {
 } from './observability-availability.js';
 
 const DEFAULT_BASE_URL = 'https://luwag.shop';
-const DEFAULT_INTERVAL_MS = 60_000;
+// Two minutes, not one: every route costs a DNS lookup, a TLS handshake and a
+// full page render, and the alert engine only evaluates completed five-minute
+// windows anyway. A minute apart would double the cost for no earlier signal.
+const DEFAULT_INTERVAL_MS = 120_000;
 const DEFAULT_TIMEOUT_MS = 5_000;
 const RETENTION_DAYS = 30;
 const PROBE_UA = 'LUWAG-Probe/1.0 (+https://luwag.shop)';

@@ -32,13 +32,21 @@ const PAGE_DEGRADED_MS = 3000;
  */
 export function probeRoutes(): ProbeRouteDefinition[] {
   const productPath = (process.env.PROBE_PRODUCT_PATH ?? '').trim();
-  return [
+  // The product route stays in the list even without a path: it reports
+  // UNKNOWN, which is the honest answer, and it keeps the other routes from
+  // looking complete.
+  const routes: ProbeRouteDefinition[] = [
     { key: 'home', path: '/', domMarker: '<h1' },
     { key: 'collections', path: '/collections/all-products', domMarker: '<h1' },
     { key: 'product', path: productPath, domMarker: '<h1' },
-    { key: 'cart', path: '/cart', domMarker: '<h1' },
-    { key: 'checkout', path: '/checkout', domMarker: '<form' },
   ];
+  // The cart and checkout pages are optional: they need a session to be
+  // meaningful, and probing them costs a request each.
+  if (process.env.PROBE_INCLUDE_CHECKOUT !== 'false') {
+    routes.push({ key: 'cart', path: '/cart', domMarker: '<h1' });
+    routes.push({ key: 'checkout', path: '/checkout', domMarker: '<form' });
+  }
+  return routes;
 }
 
 /**
