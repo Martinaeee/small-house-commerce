@@ -1,3 +1,5 @@
+import type { PaymentMethodId } from "./api";
+
 export interface CheckoutDraftCustomer {
   name: string; phone: string; province: string; city: string;
   barangay: string; postalCode: string; streetAddress: string; landmark: string;
@@ -17,6 +19,12 @@ export interface CheckoutDraft {
   promoCode?: string | null;
   /** Free-text delivery note from the shopper (order-level, max 200). */
   customerNote?: string | null;
+  /**
+   * The payment the shopper chose. Absent in a draft written before the
+   * choice existed, so it reads as COD — the default that keeps every old
+   * draft orderable.
+   */
+  paymentMethod?: PaymentMethodId;
   selection?: CheckoutDraftSelection;
 }
 const DRAFT_KEY = "luwag_checkout_draft";
@@ -99,7 +107,16 @@ function normalizeDraft(parsed: CheckoutDraft): CheckoutDraft | null {
       typeof parsed.promoCode === "string" && parsed.promoCode.trim() !== ""
         ? parsed.promoCode.trim().toUpperCase().slice(0, 32)
         : null,
+    // A draft written before the payment choice existed reads as COD.
+    paymentMethod: normalizePaymentMethod(parsed.paymentMethod),
   };
+}
+
+/** Only the four known methods; anything else reads as COD. */
+function normalizePaymentMethod(value: unknown): PaymentMethodId {
+  return value === "CARD" || value === "GCASH" || value === "BPI"
+    ? value
+    : "COD";
 }
 /** Mirrors the order API: trimmed, at most 200 characters, blank = none. */
 function normalizeNote(value: unknown): string | null {
@@ -114,6 +131,7 @@ export function writeCheckoutDraft(
   selection?: CheckoutDraftSelection,
   promoCode: string | null = null,
   customerNote: string | null = null,
+  paymentMethod: PaymentMethodId = "COD",
 ): void {
   const draft: CheckoutDraft = {
     customer,
@@ -124,6 +142,7 @@ export function writeCheckoutDraft(
         ? promoCode.trim().toUpperCase().slice(0, 32)
         : null,
     customerNote: normalizeNote(customerNote),
+    paymentMethod: normalizePaymentMethod(paymentMethod),
     savedAt: new Date().toISOString(),
   };
   memoryDraft = draft;

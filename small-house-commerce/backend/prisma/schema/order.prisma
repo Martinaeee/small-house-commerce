@@ -56,6 +56,8 @@ enum PaymentStatus {
 enum PaymentMethod {
   COD
   AIRWALLEX
+  /// Gateway payments processed through the SUNRATE acquiring module.
+  SUNRATE
 }
 
 enum SourceType {
@@ -246,6 +248,7 @@ model Order {
   mergeRecordsMerged      OrderMergeRecord[]            @relation("MergedOrder")
   attribution             OrderAttribution?
   payments                Payment[]
+  sunrateAttempts         SunratePaymentAttempt[]
   reservations            InventoryReservation[]
   shipments               Shipment[]
   promoRedemption         PromoCodeRedemption?
@@ -607,6 +610,7 @@ model Payment {
   createdAt DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
 
   order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  sunrateAttempt SunratePaymentAttempt?
 
   @@index([orderId])
   @@map("payments")

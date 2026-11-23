@@ -8,6 +8,7 @@ const eventsMock = vi.hoisted(() => ({ recordSubmitAttempt: vi.fn(), recordSubmi
 vi.mock("@/lib/checkout-events", () => eventsMock);
 const apiMock = vi.hoisted(() => ({
   previewPromoCode: vi.fn(),
+  getPaymentMethods: vi.fn(),
 }));
 const routerMock = vi.hoisted(() => ({ push: vi.fn() }));
 const draftMock = vi.hoisted(() => ({
@@ -24,7 +25,11 @@ vi.mock("@/lib/api", async () => {
   const actual = await vi.importActual<typeof import("@/lib/api")>("@/lib/api");
   return {
     ...actual,
-    api: { ...actual.api, previewPromoCode: apiMock.previewPromoCode },
+    api: {
+      ...actual.api,
+      previewPromoCode: apiMock.previewPromoCode,
+      getPaymentMethods: apiMock.getPaymentMethods,
+    },
   };
 });
 vi.mock("next/navigation", () => ({ useRouter: () => routerMock }));
@@ -77,6 +82,16 @@ beforeEach(() => {
   // test must start with an empty tab or a previous note is restored.
   localStorage.clear();
   draftMock.readCheckoutDraft.mockReturnValue(null);
+  apiMock.getPaymentMethods.mockResolvedValue({
+    codEnabled: true,
+    revision: 0,
+    methods: [
+      { id: "COD", enabled: true },
+      { id: "CARD", enabled: false },
+      { id: "GCASH", enabled: false },
+      { id: "BPI", enabled: false },
+    ],
+  });
   validationMock.validateCheckoutForm.mockReturnValue({});
   validationMock.validatePreferredDate.mockReturnValue(null);
   checkoutLinesMock.mockReturnValue({
@@ -170,6 +185,7 @@ describe("CheckoutForm promo code", () => {
       undefined,
       "SAVE10",
       null,
+      "COD",
     );
     expect(routerMock.push).toHaveBeenCalledWith(
       "/checkout/confirm?items=item-1&auto=1",
@@ -225,6 +241,7 @@ describe("CheckoutForm order notes", () => {
       undefined,
       null,
       "Please call before delivery",
+      "COD",
     );
   });
 
@@ -240,6 +257,7 @@ describe("CheckoutForm order notes", () => {
       undefined,
       null,
       null,
+      "COD",
     );
   });
 

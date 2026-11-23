@@ -135,3 +135,21 @@ describe('checkout idempotency key validation', () => {
     expect(result.success).toBe(true);
   });
 });
+
+describe('checkout idempotency fingerprint — payment method', () => {
+  // Pinned before the DTO gained `paymentMethod`: COD fingerprints must stay
+  // byte-identical forever, or existing in-flight keys would falsely conflict.
+  const LEGACY_DIGEST = 'a96fe61daf11f8d13b655c75880ec2b31a5492d58f5c950e31089f3f81cf66c8';
+
+  it('keeps the legacy digest when paymentMethod is COD (default)', () => {
+    expect(idempotencyFingerprint(checkoutInput())).toBe(LEGACY_DIGEST);
+    expect(idempotencyFingerprint(checkoutInput({ paymentMethod: 'COD' }))).toBe(LEGACY_DIGEST);
+  });
+
+  it('changes the digest when the method is an online channel', () => {
+    expect(idempotencyFingerprint(checkoutInput({ paymentMethod: 'GCASH' }))).not.toBe(LEGACY_DIGEST);
+    expect(idempotencyFingerprint(checkoutInput({ paymentMethod: 'CARD' }))).not.toBe(
+      idempotencyFingerprint(checkoutInput({ paymentMethod: 'GCASH' })),
+    );
+  });
+});

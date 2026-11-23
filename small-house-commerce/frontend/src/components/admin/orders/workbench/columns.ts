@@ -1,4 +1,5 @@
 import type { TKey } from "@/lib/admin-i18n";
+import type { AdminOrderListRow } from "@/lib/admin-api";
 
 /**
  * The column set of the order workbench (draft §A).
@@ -12,6 +13,7 @@ export type WorkbenchColumnKey =
   | "customer"
   | "phone"
   | "status"
+  | "payment"
   | "adid"
   | "optimizer"
   | "campaign"
@@ -46,6 +48,7 @@ export const WORKBENCH_COLUMNS: WorkbenchColumn[] = [
   { key: "customer", labelKey: "orders_col_customer", width: 118, sticky: "left2" },
   { key: "phone", labelKey: "orders_col_phone", width: 142 },
   { key: "status", labelKey: "orders_col_status", width: 168 },
+  { key: "payment", labelKey: "orders_col_payment", width: 104 },
   { key: "adid", labelKey: "orders_col_adid", width: 190 },
   { key: "optimizer", labelKey: "orders_col_optimizer", width: 150 },
   { key: "campaign", labelKey: "orders_col_campaign", width: 160, defaultHidden: true },
@@ -72,6 +75,31 @@ export const DEFAULT_HIDDEN_COLUMNS: WorkbenchColumnKey[] = WORKBENCH_COLUMNS.fi
 export const DEFAULT_COLUMN_ORDER: WorkbenchColumnKey[] = WORKBENCH_COLUMNS.map(
   (column) => column.key,
 );
+
+const CHANNEL_LABELS: Record<string, string> = {
+  card: "Card",
+  gcash: "GCash",
+  bpi: "BPI",
+};
+
+/**
+ * How the order is paid, in the words the operator uses.
+ *
+ * The method column and the payment-status column stay separate: an online
+ * order reads "GCash" while its status is "online pending", "paid" or
+ * "failed". An online row with no channel yet still reads as an online
+ * payment, never as cash.
+ */
+export function paymentMethodLabel(
+  row: Pick<AdminOrderListRow, "paymentMethod" | "paymentChannel">,
+): string {
+  if (row.paymentMethod === "SUNRATE") {
+    return (row.paymentChannel && CHANNEL_LABELS[row.paymentChannel]) ?? "Online";
+  }
+  if (row.paymentMethod === "COD") return "COD";
+  if (row.paymentMethod) return row.paymentMethod;
+  return "Unknown";
+}
 
 const COLUMN_BY_KEY = new Map(WORKBENCH_COLUMNS.map((column) => [column.key, column]));
 

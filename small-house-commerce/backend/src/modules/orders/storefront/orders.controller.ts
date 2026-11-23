@@ -28,6 +28,13 @@ import {
   OrderReceiptService,
 } from '../order-receipt.service.js';
 import {
+  PAYMENT_CAPABILITY_COOKIE,
+  PAYMENT_CAPABILITY_PATH,
+  PAYMENT_CAPABILITY_TTL_MS,
+  PaymentCapabilityService,
+} from '../../payments/payment-capability.service.js';
+import { PaymentsService } from '../../payments/payments.service.js';
+import {
   attemptStatusSchema,
   checkoutSchema,
   lookupSchema,
@@ -64,6 +71,8 @@ export class StorefrontOrdersController {
   constructor(
     private readonly ordersService: OrdersService,
     private readonly receipts: OrderReceiptService,
+    private readonly payments: PaymentsService,
+    private readonly capability: PaymentCapabilityService,
   ) {}
 
   /** Client-supplied tracing id when sane, otherwise ours; echoed in the header. */
@@ -124,7 +133,36 @@ export class StorefrontOrdersController {
           maxAge: ORDER_RECEIPT_TTL_MS,
         });
       }
-      return result;
+      if (body.paymentMethod === 'COD' || !orderNumber) return result;
+
+      // An online checkout opens the gateway session before it answers, so
+      // the shopper can pay straight away. The capability cookie proves the
+      // order later on the payment return path.
+      const session = await this.payments.initiateGatewaySession(orderNumber, {
+        userIp: checkoutRequestMeta(request).clientIp,
+        userAgent: request.headers['user-agent'] ?? null,
+      });
+      response.cookie(
+        PAYMENT_CAPABILITY_COOKIE,
+        this.capability.issue(orderNumber, session.attemptId),
+        {
+          httpOnly: true,
+          sameSite: 'lax',
+          secure: requestIsSecure(request),
+          path: PAYMENT_CAPABILITY_PATH,
+          maxAge: PAYMENT_CAPABILITY_TTL_MS,
+        },
+      );
+      return {
+        ...result,
+        payment: {
+          attemptId: session.attemptId,
+          channel: session.channel,
+          env: session.env,
+          ...(session.paySession ? { paySession: session.paySession } : {}),
+          ...(session.payUrl ? { payUrl: session.payUrl } : {}),
+        },
+      };
     } catch (error) {
       this.logger.log(
         JSON.stringify({

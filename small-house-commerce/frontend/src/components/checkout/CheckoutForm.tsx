@@ -16,6 +16,7 @@ import {
   INITIATE_CHECKOUT_FIRED_KEY,
 } from "@/lib/commerce-events";
 import { readCheckoutDraft, writeCheckoutDraft } from "@/lib/checkoutDraft";
+import type { PaymentMethodId } from "@/lib/api";
 import { recordSubmitAttempt, recordSubmitFailure } from "@/lib/checkout-events";
 import {
   buildCheckoutSnapshot,
@@ -32,6 +33,7 @@ import { CheckoutTrustStrip } from "./CheckoutTrustStrip";
 import { checkoutQueryString } from "./checkoutItems";
 import { PromoCodeField, type AppliedPromo } from "./PromoCodeField";
 import { CheckoutAddressDialog } from "./CheckoutAddressDialog";
+import { PaymentMethodSelector, usePaymentMethods } from "./PaymentMethodSelector";
 import { NewsletterOfferPrompt } from "@/components/newsletter/NewsletterOfferPrompt";
 
 import {
@@ -120,6 +122,37 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
   const [initialPromoCode, setInitialPromoCode] = useState("");
   const [appliedPromo, setAppliedPromo] = useState<AppliedPromo | null>(null);
   const [promoChecking, setPromoChecking] = useState(false);
+  // The payment the shopper chooses. COD stays the default; the server owns
+  // which methods exist at all.
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethodId>("COD");
+  const paymentMethods = usePaymentMethods();
+
+  // The chosen method has to exist. When the server took it away, the page
+  // falls back to the first method it still offers instead of promising a
+  // payment the backend would refuse.
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      // The await keeps the setState out of the effect's synchronous body
+      // (react-hooks/set-state-in-effect; the same convention the draft
+      // restore below uses).
+      await Promise.resolve();
+      if (!alive) return;
+      if (paymentMethods.loading || paymentMethods.error !== null) return;
+      const offered = paymentMethods.methods.filter((method) => method.enabled);
+      if (offered.length === 0) return;
+      if (offered.some((method) => method.id === paymentMethod)) return;
+      setPaymentMethod(offered[0]!.id);
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [
+    paymentMethods.loading,
+    paymentMethods.error,
+    paymentMethods.methods,
+    paymentMethod,
+  ]);
   // The summary block can be collapsed so the shopper reaches the form first.
   const [summaryOpen, setSummaryOpen] = useState(true);
   // Address-first checkout: the address is collected in a modal (Shopee-style)
@@ -200,6 +233,8 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
           notes: d.customerNote ?? "",
         }));
         setInitialPromoCode(d.promoCode ?? "");
+        // The payment choice survives a back-button or a re-entry.
+        setPaymentMethod(d.paymentMethod ?? "COD");
       }
     })();
     return () => {
@@ -472,7 +507,7 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
       postalCode: form.postalCode.trim() || "",
       streetAddress: form.streetAddress.trim(),
       landmark: form.landmark.trim() || "",
-    }, null, undefined, appliedPromo?.code ?? null, form.notes.trim() || null);
+    }, null, undefined, appliedPromo?.code ?? null, form.notes.trim() || null, paymentMethod);
     flushAutosave();
     const query = checkoutQueryString({ skuId, qty, itemsParam, slug });
     // The shopper already reviewed the address and the summary here: the
@@ -679,6 +714,31 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
                 data-testid="checkout-totals"
                 className="border-t border-border px-4 py-4 sm:px-5"
               >
+                {/* The payment choice sits above the totals: what the shopper
+                    pays by is part of what they are buying. */}
+                <div className="mb-4">
+                  <PaymentMethodSelector
+                    methods={paymentMethods.methods}
+                    value={paymentMethod}
+                    onChange={setPaymentMethod}
+                    disabled={paymentMethods.loading || paymentMethods.error !== null}
+                  />
+                  {paymentMethods.error !== null && (
+                    <div
+                      data-testid="payment-methods-error"
+                      className="mt-2 flex items-center justify-between gap-3 text-xs text-sale"
+                    >
+                      <span>{paymentMethods.error}</span>
+                      <button
+                        type="button"
+                        onClick={paymentMethods.reload}
+                        className="font-medium underline"
+                      >
+                        Try again
+                      </button>
+                    </div>
+                  )}
+                </div>
                 <dl className="flex flex-col gap-2.5 text-sm">
                   <div className="flex justify-between">
                     <dt className="text-ink-secondary">Item Subtotal</dt>
@@ -713,7 +773,9 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
                     <dd className="font-semibold text-ink">Free</dd>
                   </div>
                   <div className="flex justify-between border-t border-border pt-3 text-base">
-                    <dt className="font-semibold text-ink">Total (COD)</dt>
+                    <dt className="font-semibold text-ink">
+                      {paymentMethod === "COD" ? "Total (COD)" : "Total"}
+                    </dt>
                     <dd className="font-bold text-ink">
                       {discountedTotal !== null ? formatPrice(discountedTotal) : "Calculated at checkout"}
                     </dd>
@@ -763,11 +825,13 @@ export function CheckoutForm({ skuId, qty, itemsParam, slug }: CheckoutFormProps
             onClick={goToReview}
             className="w-full"
             data-testid="review-order"
-            disabled={promoChecking}
+            disabled={promoChecking || paymentMethods.loading || paymentMethods.error !== null}
           >
             PLACE ORDER
           </Button>
-          <p className="mt-2 text-center text-xs text-ink-muted">Cash on Delivery</p>
+          <p className="mt-2 text-center text-xs text-ink-muted">
+            {paymentMethod === "COD" ? "Cash on Delivery" : "Paid online"}
+          </p>
         </div>
 
         <CheckoutTrustStrip

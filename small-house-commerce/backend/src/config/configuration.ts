@@ -100,6 +100,24 @@ export function configuration() {
       warehouse: env.QIANYI_WAREHOUSE ?? '',
       localWarehouseId: env.QIANYI_LOCAL_WAREHOUSE_ID ?? null,
       logistics: env.QIANYI_LOGISTICS ?? '',
+      // Whether Qianyi's prepaid enum for online orders is confirmed. Until
+      // it is, an online order is never pushed to Qianyi.
+      prepaidVerified: env.QIANYI_PREPAID_VERIFIED ?? 'false',
+    },
+    // SUNRATE acquiring integration (design 2026-11-20). The gateway host is
+    // bound to the environment in sunrate.config.ts, never taken from env
+    // beyond a consistency check.
+    sunrate: {
+      enabled: env.SUNRATE_ENABLED ?? 'false',
+      env: env.SUNRATE_ENV ?? '',
+      baseUrl: env.SUNRATE_BASE_URL ?? '',
+      merchantId: env.SUNRATE_MERCHANT_ID ?? '',
+      signKey: env.SUNRATE_SIGN_KEY ?? '',
+    },
+    // Public origin used to build gateway frontURL / backURL. Never derived
+    // from request headers (host-header injection would forge payment URLs).
+    payments: {
+      publicBaseUrl: env.PAYMENTS_PUBLIC_BASE_URL ?? '',
     },
   };
 }

@@ -7,7 +7,7 @@ import {
   Optional,
 } from '@nestjs/common';
 import { createHash } from 'node:crypto';
-import { Prisma, type OrderStatus } from '../../generated/prisma/client.js';
+import { Prisma, type ConfirmationStatus, type OrderStatus } from '../../generated/prisma/client.js';
 import { normalizePhilippinePhone, phoneSearchFragments } from '../../common/phone.util.js';
 import { manilaDayEndExclusive, manilaDayStart } from '../../common/manila-day.js';
 import {
@@ -28,6 +28,9 @@ import { MarketingTouchService } from '../marketing/marketing-touch.service.js';
 import type { AdIdMissingReason, AdidSource } from '../marketing/marketing-attribution.js';
 import { MetaCapiService } from '../meta-capi/meta-capi.service.js';
 import { QianyiSyncService } from '../qianyi/qianyi-sync.service.js';
+import { PaymentMethodsService } from '../payments/payment-methods.service.js';
+import { newMerchantOrderNum } from '../payments/sunrate.merchant-order-num.js';
+import type { SunrateConfig } from '../payments/sunrate.config.js';
 import type { CheckoutRequestMeta } from '../meta-capi/request-meta.js';
 import { CHECKOUT_DRAFT_MAX_AGE_MS, tryHashCheckoutDraftToken } from '../checkout-drafts/checkout-draft-token.js';
 import type { CheckoutDraftSnapshot } from '../checkout-drafts/checkout-draft-snapshot.js';
@@ -108,6 +111,9 @@ const ORDER_DETAIL_INCLUDE = {
   shippingAddress: true,
   attribution: true,
   payments: true,
+  // The gateway attempts with their masked snapshots (brand, last four):
+  // the card number itself never reaches this system.
+  sunrateAttempts: { orderBy: { createdAt: 'desc' as const } },
   statusHistory: { orderBy: { createdAt: 'asc' as const } },
   reservations: true,
   notes: { orderBy: { createdAt: 'desc' as const } },
@@ -292,6 +298,12 @@ function guestThumbnail(item: {
 }
 
 /**
+ * Payment attempt states that still own the order: the money may be moving,
+ * or has moved. A failed attempt owns nothing.
+ */
+const ONLINE_ATTEMPT_BLOCKING = ['CREATING', 'PENDING', 'UNKNOWN', 'REVIEW', 'SUCCEEDED'] as const;
+
+/**
  * Redacted per-request checkout timings. The caller keeps the object, fills it
  * during the call and logs the numbers; no customer data ever enters it.
  */
@@ -301,6 +313,20 @@ export type CheckoutTrace = {
   /** The request matched an existing order and created nothing. */
   replayed: boolean;
 };
+
+/**
+ * What a checkout hands back. An online checkout also carries the payment
+ * attempt it created — the handle the gateway session is started from —
+ * while a COD checkout has nothing to pay and never grows that key.
+ */
+export interface CheckoutResult {  orderNumber: string;
+  orderStatus: OrderStatus;
+  confirmationStatus: ConfirmationStatus;
+  riskType: string | null;
+  requiresReview: boolean;
+  grandTotal: number;
+  payment?: { attemptId: string; channel: string; env: string };
+}
 
 @Injectable()
 export class OrdersService {
@@ -318,6 +344,9 @@ export class OrdersService {
     // Optional for the same reason: every spec that builds OrdersService by
     // hand keeps working without a Qianyi stub.
     @Optional() private readonly qianyi?: QianyiSyncService,
+    // The per-method payment switches. Optional so hand-built services keep
+    // working; without it only COD can be served.
+    @Optional() private readonly paymentMethods?: PaymentMethodsService,
   ) {}
 
   /**
@@ -348,6 +377,49 @@ export class OrdersService {
   }
 
   /**
+   * Decides which payment path a checkout takes. The switches live in the
+   * database, so the decision is read inside the checkout transaction: a
+   * method switched off between the pre-check and the write must not leave
+   * an order, a reservation or a redeemed promo behind.
+   */
+  private async resolvePaymentPlan(
+    paymentMethod: 'COD' | 'CARD' | 'GCASH' | 'BPI',
+  ): Promise<{ channel: string | null; gateway: SunrateConfig | null }> {
+    // Without the payment module (hand-built service) only COD can be
+    // served; an online choice is refused, never silently downgraded.
+    if (!this.paymentMethods) {
+      if (paymentMethod !== 'COD') throw new ConflictException('PAYMENT_METHOD_DISABLED');
+      return { channel: null, gateway: null };
+    }
+    const effective = await this.paymentMethods.listEffectiveMethods();
+    if (paymentMethod === 'COD') {
+      if (!effective.codEnabled) throw new ConflictException('PAYMENT_METHOD_DISABLED');
+      return { channel: null, gateway: null };
+    }
+    const method = effective.methods.find((entry) => entry.id === paymentMethod);
+    if (!method?.enabled) throw new ConflictException('PAYMENT_METHOD_DISABLED');
+    const gateway = this.paymentMethods.gatewayConfig();
+    if (!gateway) throw new ConflictException('PAYMENT_METHOD_DISABLED');
+    return { channel: paymentMethod.toLowerCase(), gateway };
+  }
+
+  /**
+   * An order with an open or paid online payment must not be cancelled or
+   * deleted: the money may still be moving, or has already moved. A failed
+   * payment owns nothing and is handled like any other order.
+   */
+  private async assertOnlinePaymentSettled(
+    tx: Prisma.TransactionClient,
+    orderId: string,
+  ): Promise<void> {
+    const attempt = await tx.sunratePaymentAttempt.findFirst({
+      where: { orderId, status: { in: [...ONLINE_ATTEMPT_BLOCKING] } },
+    });
+    if (!attempt) return;
+    throw new ConflictException('ONLINE_PAYMENT_ACTIVE_CONFIRM_VIA_QUERY');
+  }
+
+  /**
    * COD checkout (API_SPEC §18, decided rules):
    * - re-validate every SKU (exists, active, priced) and stock availability;
    *   any shortfall rejects the WHOLE order (no partial checkout)
@@ -356,7 +428,7 @@ export class OrdersService {
    */
   async checkout(input: CheckoutInput, requestMeta?: CheckoutRequestMeta, manualDraft?: {
     id: string; tokenHash: string; revision: number; operatorId: string; riskReviewed: boolean;
-  }, trace?: CheckoutTrace) {
+  }, trace?: CheckoutTrace): Promise<CheckoutResult> {
     const traceStart = Date.now();
     // A retry (timeout, lost response, double click) must return the order the
     // first attempt created instead of creating another one. The pre-check
@@ -375,6 +447,11 @@ export class OrdersService {
     }
 
     const normalizedPhone = this.normalizePhone(input.customer.phone);
+
+    // The payment choice belongs to the order, so the switch that decides
+    // whether it may be used is read inside the transaction below.
+    const paymentMethod = input.paymentMethod ?? 'COD';
+    const isOnlinePayment = paymentMethod !== 'COD';
 
     // Customer classification snapshot (CUSTOMER_RISK_SPEC §7): computed for
     // the new order from prior history; stored on the order, never recomputed.
@@ -409,6 +486,11 @@ export class OrdersService {
         if (locked.clientRevision !== manualDraft.revision) throw new ConflictException('DRAFT_CHANGED: reload the latest draft before converting');
       }
     }
+    // Payment gate (design 2026-11-20 §4). It runs inside the transaction and
+    // after the draft replay above, so a retry of an order that already
+    // exists still gets that order back, while a method that was switched off
+    // can never leave an order, a reservation or a promo behind.
+    const paymentPlan = await this.resolvePaymentPlan(paymentMethod);
     // Resolve customer by canonical phone (§9: phone is the identity key)
     // inside the order transaction, so a failed or conflicting attempt does
     // not leave a customer record behind.
@@ -729,6 +811,9 @@ export class OrdersService {
           trackingSessionId: input.trackingSessionId ?? null,
           idempotencyKey: input.idempotencyKey ?? null,
           idempotencyHash,
+          // An online order waits in ONLINE_PENDING until a verified gateway
+          // result moves it to PAID. COD keeps the column's own default.
+          ...(isOnlinePayment ? { paymentStatus: 'ONLINE_PENDING' as const } : {}),
           items: {
             create: lines.map((line) => ({
               skuId: line.skuId,
@@ -801,13 +886,49 @@ export class OrdersService {
           },
           payments: {
             create: {
-              method: 'COD',
-              status: 'COD_PENDING',
+              // CARD, GCASH and BPI all ride the SUNRATE gateway; the
+              // channel itself lives on the payment attempt.
+              method: isOnlinePayment ? 'SUNRATE' : 'COD',
+              status: isOnlinePayment ? 'ONLINE_PENDING' : 'COD_PENDING',
               amount: new Prisma.Decimal(grandTotal),
             },
           },
         },
       });
+
+      // The gateway attempt is written in the same transaction as the order:
+      // an order without an attempt can never be paid, and an attempt
+      // without an order is a phantom. The payment session itself is started
+      // after the commit.
+      let payment: { attemptId: string; channel: string; env: string } | null = null;
+      if (paymentPlan.channel && paymentPlan.gateway) {
+        const attempt = await tx.sunratePaymentAttempt.create({
+          data: {
+            orderId: created.id,
+            channel: paymentPlan.channel,
+            env: paymentPlan.gateway.env,
+            merchantId: paymentPlan.gateway.merchantId,
+            merchantOrderNum: newMerchantOrderNum(),
+            amount: new Prisma.Decimal(grandTotal),
+            currency: 'PHP',
+            status: 'CREATING',
+            // The browser facts the Purchase event needs once the payment is
+            // verified. They are kept server-side so the event can still be
+            // sent when the shopper's tab is long gone.
+            lastResult: {
+              metaConsent: input.metaConsent === true,
+              fbp: input.fbp ?? touch?.fbp ?? null,
+              fbc: input.fbc ?? touch?.fbc ?? null,
+              eventSourceUrl: requestMeta?.eventSourceUrl ?? null,
+            },
+          },
+        });
+        payment = {
+          attemptId: attempt.id,
+          channel: paymentPlan.channel,
+          env: paymentPlan.gateway.env,
+        };
+      }
 
       // Claim the slot in the same transaction as the order. A later stock or
       // write failure rolls both rows back together.
@@ -888,8 +1009,9 @@ export class OrdersService {
         orderNumber,
         offerAvailabilityChanged: promo?.exhaustsTotalLimit ?? false,
         // Meta Purchase facts travel out of the transaction so the outbox
-        // write happens after the order is committed.
-        purchaseLines: lines.map((line) => ({
+        // write happens after the order is committed. An online order has no
+        // Purchase yet: the event waits for the verified PAID result.
+        purchaseLines: isOnlinePayment ? null : lines.map((line) => ({
           skuId: line.skuId,
           quantity: line.quantity,
           unitPrice: Number(line.unitPrice),
@@ -902,6 +1024,8 @@ export class OrdersService {
         // form may not resend them after a reload or a second tab.
         touchFbp: touch?.fbp ?? null,
         touchFbc: touch?.fbc ?? null,
+        // The handle the payment session is created from; null for COD.
+        payment,
       };
       });
 
@@ -925,7 +1049,7 @@ export class OrdersService {
       return transactionOutcome.replay!;
     }
     if (trace) trace.phaseMs.transaction = Date.now() - transactionStart;
-    const { order, customer, orderNumber, offerAvailabilityChanged, purchaseLines, amount, touchFbp, touchFbc } = transactionOutcome;
+    const { order, customer, orderNumber, offerAvailabilityChanged, purchaseLines, amount, touchFbp, touchFbc, payment } = transactionOutcome;
 
     const postCommitStart = Date.now();
     if (offerAvailabilityChanged) {
@@ -972,8 +1096,10 @@ export class OrdersService {
 
     // Meta Purchase through the durable outbox. The order is already
     // committed; a measurement hiccup must never surface as a checkout error.
+    // An online order has no Purchase yet — it waits for the verified PAID
+    // result, so that a pending or failed payment is never counted.
     const metaStart = Date.now();
-    if (requestMeta?.eventSourceUrl) {
+    if (purchaseLines && requestMeta?.eventSourceUrl) {
       try {
         await this.metaCapi?.enqueuePurchase({
           orderNumber,
@@ -1010,6 +1136,9 @@ export class OrdersService {
       // The same amount written to the order and sent to the Purchase outbox.
       // The confirmation page uses this instead of its cart preview total.
       grandTotal: amount,
+      // Only an online checkout carries the attempt handle the payment
+      // session is created from; COD has nothing to pay.
+      ...(payment ? { payment } : {}),
     };
   }
 
@@ -1224,6 +1353,10 @@ export class OrdersService {
         },
       });
       if (!order) throw new NotFoundException('Order not found');
+
+      // Before anything is closed or removed: an order that is paid (or
+      // being paid) online keeps its money question open.
+      await this.assertOnlinePaymentSettled(tx, orderId);
 
       const qianyiAction = this.qianyi
         ? await this.qianyi.closeForDeleteWithin(tx, orderId, operatorId)
@@ -1459,6 +1592,9 @@ export class OrdersService {
         if (order.orderStatus === 'SHIPPING') {
           throw new BadRequestException('Shipped orders cannot be cancelled');
         }
+        // An order that is paid (or being paid) online is not cancelled from
+        // here: the money question comes first.
+        await this.assertOnlinePaymentSettled(tx, orderId);
 
         const updated = await tx.order.update({
           where: { id: orderId },
@@ -2213,14 +2349,24 @@ export class OrdersService {
     }
     const primary = await tx.order.findUnique({
       where: { id: input.primaryOrderId },
-      include: { shippingAddress: true, items: true },
+      include: { shippingAddress: true, items: true, payments: { select: { method: true, status: true } } },
     });
     const merged = await tx.order.findUnique({
       where: { id: input.mergedOrderId },
-      include: { shippingAddress: true, items: true },
+      include: { shippingAddress: true, items: true, payments: { select: { method: true, status: true } } },
     });
     if (!primary || !merged) throw new NotFoundException('Order not found');
     if (primary.id === merged.id) throw new BadRequestException('Cannot merge an order with itself');
+
+    // An order that carries an online payment is not merged: its money
+    // belongs to that order alone, and the payment records would end up on
+    // the wrong side of the merge.
+    const onlinePayments = [...primary.payments, ...merged.payments].filter(
+      (payment) => payment.method === 'SUNRATE' && payment.status !== 'FAILED',
+    );
+    if (onlinePayments.length > 0) {
+      throw new ConflictException('ONLINE_PAYMENT_ORDER_NOT_MERGEABLE');
+    }
 
     const mergeable = new Set(['NEW', 'PENDING', 'CONFIRMED']);
     if (!mergeable.has(primary.orderStatus) || !mergeable.has(merged.orderStatus)) {
@@ -2634,6 +2780,13 @@ export class OrdersService {
             orderBy: { createdAt: 'asc' },
             take: 1,
           },
+          // The newest gateway attempt: an online order's method is the
+          // channel the shopper actually paid with (Card / GCash / BPI).
+          sunrateAttempts: {
+            select: { channel: true, status: true },
+            orderBy: { createdAt: 'desc' },
+            take: 1,
+          },
           verificationAssignments: {
             where: { closedAt: null },
             select: {
@@ -2682,6 +2835,9 @@ export class OrdersService {
         }),
         // The payment method (COD / online) the table filters on.
         paymentMethod: rest.payments?.[0]?.method ?? null,
+        // For an online order the readable method is the gateway channel.
+        paymentChannel: rest.sunrateAttempts?.[0]?.channel ?? null,
+        paymentAttemptStatus: rest.sunrateAttempts?.[0]?.status ?? null,
         assignedTo: rest.assignedToId
           ? { id: rest.assignedToId, name: nameById.get(rest.assignedToId) ?? null }
           : null,

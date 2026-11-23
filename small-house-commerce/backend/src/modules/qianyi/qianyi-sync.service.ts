@@ -11,8 +11,13 @@ const BATCH_SIZE = 10;
 const MAX_CLOSE_ATTEMPTS = 5;
 const CLOSE_BACKOFF_MINUTES = [1, 5, 15, 60];
 const SENDING_LEASE_MS = 10 * 60 * 1000;
-const ORDER_INCLUDE = { items: { include: { sku: true } }, shippingAddress: true, customer: true } satisfies Prisma.OrderInclude;
+const ORDER_INCLUDE = { items: { include: { sku: true } }, shippingAddress: true, customer: true, payments: { select: { method: true, status: true } } } satisfies Prisma.OrderInclude;
 const PUSHABLE = new Set(['CONFIRMED', 'SHIPPING']);
+
+/** An order paid through the SUNRATE gateway instead of on delivery. */
+function isOnlineOrder(order: { payments?: { method: string }[] }): boolean {
+  return (order.payments ?? []).some((payment) => payment.method === 'SUNRATE');
+}
 
 type Job = Prisma.QianyiSyncJobGetPayload<object>;
 type Result = { ok: boolean; reason?: string; missing?: string[] };
@@ -55,6 +60,19 @@ export class QianyiSyncService implements OnModuleInit, OnApplicationShutdown {
     let payload: Record<string, unknown>;
     try {
       if (kind === 'PUSH_ORDER') {
+        // An online order that is not paid yet must not reach Qianyi: it
+        // would be booked as an unpaid sales order.
+        if (isOnlineOrder(order) && order.paymentStatus !== 'PAID') {
+          this.logger.warn(
+            JSON.stringify({
+              event: 'QIANYI_ONLINE_NOT_PAID',
+              orderId,
+              orderNumber: order.orderNumber,
+              paymentStatus: order.paymentStatus,
+            }),
+          );
+          return;
+        }
         payload = buildCreateOrderPayload(order, { shop, warehouseId, warehouse, logistics });
         payload._skuMapping = Object.fromEntries(order.items.map(item => [item.id, item.sku.qianyiSkuCode!.trim()]));
       } else {
@@ -134,6 +152,25 @@ export class QianyiSyncService implements OnModuleInit, OnApplicationShutdown {
     if (!order) return this.finish(job, { status: 'FAILED', lastError: 'ORDER_MISSING' });
     if (!PUSHABLE.has(order.orderStatus) || order.confirmationStatus !== 'CONFIRMED') {
       return this.finish(job, { status: 'FAILED', lastError: `ORDER_NOT_PUSHABLE: ${order.orderStatus}/${order.confirmationStatus}` });
+    }
+    // The order is checked again here: it may have been paid, or stopped
+    // being paid, between the queue and the send.
+    if (isOnlineOrder(order)) {
+      if (order.paymentStatus !== 'PAID') {
+        return this.finish(job, {
+          status: 'FAILED',
+          pendingReview: true,
+          lastError: `ONLINE_ORDER_NOT_PAID: the order is paid online but its payment status is ${order.paymentStatus}`,
+        });
+      }
+      if (!this.config.prepaidVerified) {
+        return this.finish(job, {
+          status: 'FAILED',
+          pendingReview: true,
+          lastError:
+            'QIANYI_PREPAID_MAPPING_UNVERIFIED: confirm the prepaid payment enum for online orders with Qianyi before these orders are pushed',
+        });
+      }
     }
     let payload: Record<string, unknown>;
     try {

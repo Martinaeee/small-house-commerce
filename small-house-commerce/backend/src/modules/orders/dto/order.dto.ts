@@ -118,6 +118,10 @@ export const checkoutSchema = z.object({
   // order to its draft; it never changes what was bought and is excluded from
   // the idempotency fingerprint.
   checkoutDraftToken: z.string().min(20).max(200).nullable().optional(),
+  // Payment choice at checkout (design 2026-11-20): COD stays the default so
+  // every existing client keeps its meaning. It IS part of the fingerprint
+  // when non-COD, so the same idempotency key can never switch payment paths.
+  paymentMethod: z.enum(['COD', 'CARD', 'GCASH', 'BPI']).default('COD'),
 });
 
 export const orderQuerySchema = z.object({
@@ -330,9 +334,15 @@ export type LogisticsEventInput = z.infer<typeof logisticsEventSchema>;
  * Manual order entry can name the checkout draft it completes. The field is
  * deliberately absent from the storefront schema: only an operator who has
  * already spoken to the customer may consume that draft.
+ *
+ * The payment method is COD only: an operator takes the money on delivery,
+ * so this entry point cannot start a payment session. Posting an online
+ * method is rejected outright rather than quietly downgraded — a silent
+ * downgrade would leave an order waiting for a session nobody will start.
  */
 export const adminCheckoutSchema = checkoutSchema.extend({
   checkoutDraftId: z.string().uuid().optional(),
+  paymentMethod: z.literal('COD').default('COD'),
 });
 export type AdminCheckoutInput = z.infer<typeof adminCheckoutSchema>;
 

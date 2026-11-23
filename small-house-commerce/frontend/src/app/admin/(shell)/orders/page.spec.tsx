@@ -24,6 +24,7 @@ const api = vi.hoisted(() => ({
   recordVerificationContact: vi.fn(),
   customerOrderHistory: vi.fn(),
   getOrder: vi.fn(),
+  handoverSummary: vi.fn(),
 }));
 
 const navigation = vi.hoisted(() => ({ query: "" }));
@@ -167,6 +168,23 @@ beforeEach(() => {
     orders: [],
   });
   api.orderVerification.mockResolvedValue({ assignment: null, items: [], events: [] });
+  // The drawer loads the order detail on its overview tab (the payment
+  // block), so the open-drawer tests have to answer both calls.
+  api.handoverSummary.mockResolvedValue({
+    handedOver: [],
+    outstanding: [],
+    rejected: 0,
+    withdrawn: 0,
+    complete: false,
+    events: [],
+  });
+  api.getOrder.mockImplementation(async (id: string) => ({
+    ...row(),
+    id,
+    items: [],
+    payments: [],
+    sunrateAttempts: [],
+  }));
 });
 
 describe("current-page bulk selection", () => {

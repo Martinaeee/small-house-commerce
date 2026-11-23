@@ -31,6 +31,8 @@ function harness(qianyiAction: () => Promise<string> = async () => 'none') {
       delete: vi.fn(async () => ({})),
     },
     orderMergeRecord: { deleteMany: vi.fn(async () => ({ count: 0 })) },
+    // No online payment attempt: the order is deleted as before.
+    sunratePaymentAttempt: { findFirst: vi.fn(async () => null) },
     returnAcceptance: { deleteMany: vi.fn(async () => ({ count: 0 })) },
     shipment: { deleteMany: vi.fn(async () => ({ count: 0 })) },
     inventoryReservation: { deleteMany: vi.fn(async () => ({ count: 0 })) },
