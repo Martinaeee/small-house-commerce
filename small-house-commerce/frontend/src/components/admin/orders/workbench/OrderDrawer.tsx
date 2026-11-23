@@ -247,6 +247,7 @@ export function OrderDrawer({
   })();
 
   async function queryPayment(): Promise<void> {
+    if (!row) return;
     setPaymentQuery({ busy: true, message: null, ok: false });
     try {
       const result = await adminApi.queryOrderPayment(row.orderNumber);
